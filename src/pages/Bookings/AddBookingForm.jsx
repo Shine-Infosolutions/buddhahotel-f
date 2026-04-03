@@ -1,34 +1,35 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createBooking, checkAvailability } from '../../api/bookings';
+import { createBooking, checkAvailability, previewNumbers, searchGuestByQuery, getGuestByGRC } from '../../api/bookings';
 import { createGuest } from '../../api/guests';
-import { BedDouble, User, Info, CreditCard, Search, CheckCircle2 } from 'lucide-react';
-import PageHeader from '../../components/PageHeader';
+import { BedDouble, User, Info, CreditCard, Search, CheckCircle2, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const emptyGuest = {
   salutation: 'Mr.', name: '', age: '', gender: '', phone: '', whatsappNo: '',
-  email: '', address: '', city: '', state: '', nationality: '', dateOfBirth: '',
+  email: '', address: '', city: '', state: '', pinCode: '', nationality: '', dateOfBirth: '',
   anniversaryDate: '', companyDetails: '', idType: '', idNumber: '', isVIP: false,
 };
 
 const emptyBooking = {
   checkIn: '', checkOut: '', checkInTime: '12:00', checkOutTime: '12:00',
   numberOfRooms: 1, arrivalFrom: '', purposeOfVisit: '', extraBedChargePerDay: 0,
-  remarks: '', status: 'confirmed', cgstRate: 2.5, sgstRate: 2.5, discount: 0,
+  remarks: '', status: 'booked', cgstRate: 2.5, sgstRate: 2.5, discount: 0,
   paymentMode: '', paymentStatus: 'pending', billingInstruction: '',
 };
 
 const sectionTitle = (icon, title) => (
   <div className="flex items-center gap-3 mb-5">
-    <div className="bg-amber-100 text-amber-700 p-2 rounded-full">{icon}</div>
-    <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+    <div className="bg-[#FDF6E3] text-[#9C7C38] p-2 rounded-full">{icon}</div>
+    <h3 className="text-lg font-semibold text-[#3d2e10]">{title}</h3>
   </div>
 );
 
-const inputCls = 'border border-gray-300 rounded px-3 py-2 text-sm w-full outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 transition bg-white';
-const labelCls = 'text-sm text-gray-600 mb-1 block';
-const sectionCls = 'bg-white rounded-2xl border border-gray-200 p-6 mb-5';
+const inputCls = 'border border-[#C9A84C] rounded px-3 py-2 text-sm w-full outline-none focus:ring-2 focus:ring-[#A07830] focus:border-[#A07830] transition bg-white';
+const labelCls = 'text-sm text-[#5a4228] mb-1 block font-medium';
+const sectionCls = 'bg-[#FFFDF7] rounded-xl border border-[#E8D5A0] p-6 mb-5';
+const btnPrimary = 'bg-[#9C7C38] hover:bg-[#7A5F28] text-white px-5 py-2 rounded text-sm font-semibold disabled:opacity-50 transition-colors';
+const btnOutline = 'border border-[#C9A84C] text-[#9C7C38] hover:bg-[#FDF6E3] bg-white px-5 py-2 rounded text-sm font-semibold transition-colors';
 
 export default function AddBookingForm() {
   const navigate = useNavigate();
@@ -37,6 +38,19 @@ export default function AddBookingForm() {
   const [showCompany, setShowCompany] = useState(false);
   const [advancePayments, setAdvancePayments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState({ grcNumber: '', invoiceNumber: '' });
+  const [grcSearch, setGrcSearch] = useState('');
+  const [nameSearch, setNameSearch] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  useEffect(() => {
+    previewNumbers(new Date().toISOString().slice(0, 10)).then((r) => setPreview(r.data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (booking.checkIn) previewNumbers(booking.checkIn).then((r) => setPreview(r.data)).catch(() => {});
+  }, [booking.checkIn]);
 
   // Availability state
   const [checking, setChecking] = useState(false);
@@ -74,8 +88,8 @@ export default function AddBookingForm() {
   };
 
   const handleSelectCategory = (cat) => {
-    setSelectedCategory(cat);
-    setSelectedRooms([]);
+    // Toggle expanded category — does NOT clear selected rooms
+    setSelectedCategory((prev) => prev?.categoryId === cat.categoryId ? null : cat);
   };
 
   const toggleRoom = (room) => {
@@ -84,6 +98,20 @@ export default function AddBookingForm() {
         ? prev.filter((r) => r._id !== room._id)
         : [...prev, room]
     );
+  };
+
+  const handlePinCode = async (pin, setter) => {
+    setter((g) => ({ ...g, pinCode: pin }));
+    if (pin.length === 6) {
+      try {
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+        const data = await res.json();
+        if (data[0]?.Status === 'Success') {
+          const p = data[0].PostOffice[0];
+          setter((g) => ({ ...g, city: p.District, state: p.State }));
+        }
+      } catch {}
+    }
   };
 
   const addAdvancePayment = () => setAdvancePayments([...advancePayments, { amount: '', method: '', date: '', note: '' }]);
@@ -117,6 +145,43 @@ export default function AddBookingForm() {
     }
   };
 
+  const handleGRCSearch = async () => {
+    if (!grcSearch.trim()) return;
+    setSearchLoading(true);
+    try {
+      const res = await getGuestByGRC(grcSearch.trim());
+      const { _id, __v, createdAt, updatedAt, ...guestData } = res.data;
+      setGuest({ ...emptyGuest, ...guestData });
+      toast.success('Guest loaded from GRC');
+    } catch {
+      toast.error('GRC not found');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleNameSearch = async () => {
+    if (!nameSearch.trim()) return;
+    setSearchLoading(true);
+    try {
+      const res = await searchGuestByQuery(nameSearch.trim());
+      setSearchResults(res.data);
+      if (res.data.length === 0) toast.error('No guests found');
+    } catch {
+      toast.error('Search failed');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleSelectSearchResult = (g) => {
+    const { _id, __v, createdAt, updatedAt, ...guestData } = g;
+    setGuest({ ...emptyGuest, ...guestData });
+    setSearchResults([]);
+    setNameSearch('');
+    toast.success('Guest details loaded');
+  };
+
   const handleReset = () => {
     setGuest(emptyGuest);
     setBooking(emptyBooking);
@@ -125,12 +190,81 @@ export default function AddBookingForm() {
     setSelectedCategory(null);
     setSelectedRooms([]);
     setShowCompany(false);
+    setGrcSearch('');
+    setNameSearch('');
+    setSearchResults([]);
   };
 
   return (
-    <div className="max-w-5xl">
-      <PageHeader title="New Booking" />
+    <div className="-mx-8 -mt-8">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-10 flex items-center gap-4 px-8 py-3 bg-white border-b-4 border-[#3d2e10] shadow-sm mb-6">
+        <button type="button" onClick={() => navigate('/bookings')}
+          className="flex items-center gap-1.5 border border-[#3d2e10] text-[#3d2e10] hover:bg-[#f5f0e8] px-3 py-1.5 rounded text-sm font-medium transition-colors">
+          &#8592; Back
+        </button>
+        <h1 className="text-xl font-bold text-[#3d2e10]">Booking Form</h1>
+      </div>
+      <div className="max-w-5xl mx-auto px-8 pb-8">
       <form onSubmit={handleSubmit}>
+
+        {/* GRC / Returning Customer Search */}
+        <div className={sectionCls}>
+          {sectionTitle(<FileText size={18} />, 'Guest Registration Card (GRC) Details')}
+
+          {/* GRC No & Invoice No */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className={labelCls}>GRC No.</label>
+              <input className={inputCls} value={preview.grcNumber || ''} readOnly placeholder="Auto-generated" />
+            </div>
+            <div>
+              <label className={labelCls}>Invoice No.</label>
+              <input className={inputCls} value={preview.invoiceNumber || ''} readOnly placeholder="Auto-generated after booking" />
+            </div>
+          </div>
+
+          {/* Search by GRC */}
+          <div className="mb-4">
+            <label className={labelCls}>Search by GRC (Returning Customer)</label>
+            <input className={inputCls} placeholder="Enter a previous GRC number" value={grcSearch}
+              onChange={(e) => setGrcSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleGRCSearch())} />
+            <p className="text-xs text-[#8B7D3A] mt-1">💡 Enter a previous GRC number to auto-fill customer details for a new booking</p>
+          </div>
+
+          {/* Search by Name/Mobile */}
+          <div className="mb-5 relative">
+            <label className={labelCls}>Or Search by Name/Mobile</label>
+            <div className="flex gap-2">
+              <input className={inputCls} placeholder="Search by customer name or mobile number" value={nameSearch}
+                onChange={(e) => setNameSearch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleNameSearch())} />
+              <button type="button" onClick={handleNameSearch} disabled={searchLoading}
+                className="text-[#9C7C38] hover:text-[#7A5F28] px-3 py-2 text-sm font-semibold whitespace-nowrap disabled:opacity-50 transition-colors">
+                Search
+              </button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className="absolute z-20 top-full left-0 right-0 bg-white border border-[#c8b97a] rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                {searchResults.map((g) => (
+                  <button key={g._id} type="button" onClick={() => handleSelectSearchResult(g)}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#f5edd6] text-sm border-b border-[#f0e8c8] last:border-0">
+                    <span className="font-medium text-[#3d3416]">{g.salutation} {g.name}</span>
+                    <span className="text-[#8B7D3A] ml-2 text-xs">{g.phone}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3">
+            <button type="button" onClick={handleGRCSearch} disabled={searchLoading} className={btnPrimary}>
+              {searchLoading ? 'Loading...' : 'Load Customer Details'}
+            </button>
+          </div>
+        </div>
 
         {/* Room & Availability */}
         <div className={sectionCls}>
@@ -151,78 +285,79 @@ export default function AddBookingForm() {
           </div>
 
           <button type="button" onClick={handleCheckAvailability} disabled={checking}
-            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-5 py-2 rounded text-sm font-medium transition-colors mb-5">
+            className={`flex items-center gap-2 mb-5 ${btnPrimary}`}>
             <Search size={15} />
             {checking ? 'Checking...' : 'Check Availability'}
           </button>
 
-          {/* Step 2: Category selection */}
+          {/* Step 2: Categories with rooms */}
           {availabilityResult && (
             <div className="mb-4">
-              <p className="text-sm font-semibold text-gray-700 mb-3">
+              <p className="text-sm font-semibold text-[#3d3416] mb-3">
                 {availabilityResult.total > 0
-                  ? `${availabilityResult.total} room(s) available — select a category:`
+                  ? `${availabilityResult.total} room(s) available — select from any category:`
                   : 'No rooms available for these dates.'}
               </p>
-              <div className="flex flex-wrap gap-3">
+              <div className="space-y-3">
                 {availabilityResult.grouped.map((cat) => (
-                  <button key={cat.categoryId} type="button"
-                    onClick={() => handleSelectCategory(cat)}
-                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
-                      selectedCategory?.categoryId === cat.categoryId
-                        ? 'bg-amber-600 text-white border-amber-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
-                    }`}>
-                    {cat.categoryName}
-                    <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
-                      selectedCategory?.categoryId === cat.categoryId ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {cat.rooms.length}
-                    </span>
-                    {cat.basePrice && (
-                      <span className="ml-1 text-xs opacity-75">· ₹{cat.basePrice}</span>
+                  <div key={cat.categoryId} className="border border-[#E8D5A0] rounded-lg overflow-hidden">
+                    {/* Category header — click to expand/collapse */}
+                    <button type="button" onClick={() => handleSelectCategory(cat)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 bg-[#FDF6E3] hover:bg-[#f5e9c8] transition-colors">
+                      <span className="text-sm font-semibold text-[#3d2e10]">
+                        {cat.categoryName}
+                        <span className="ml-2 text-xs text-[#9C7C38]">({cat.rooms.length} available)</span>
+                        {cat.basePrice && <span className="ml-2 text-xs text-[#9C7C38]">· ₹{cat.basePrice}/night</span>}
+                      </span>
+                      <span className="text-xs text-[#9C7C38]">
+                        {selectedRooms.filter((r) => cat.rooms.find((cr) => cr._id === r._id)).length > 0 && (
+                          <span className="bg-[#9C7C38] text-white px-2 py-0.5 rounded-full mr-2">
+                            {selectedRooms.filter((r) => cat.rooms.find((cr) => cr._id === r._id)).length} selected
+                          </span>
+                        )}
+                        {selectedCategory?.categoryId === cat.categoryId ? '▲' : '▼'}
+                      </span>
+                    </button>
+                    {/* Rooms — shown when category is expanded */}
+                    {selectedCategory?.categoryId === cat.categoryId && (
+                      <div className="px-4 py-3 flex flex-wrap gap-2">
+                        {cat.rooms.map((room) => {
+                          const isSelected = selectedRooms.find((r) => r._id === room._id);
+                          return (
+                            <button key={room._id} type="button" onClick={() => toggleRoom(room)}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                                isSelected
+                                  ? 'bg-[#9C7C38] text-white border-[#9C7C38]'
+                                  : 'bg-white text-[#3d3416] border-[#C9A84C] hover:border-[#9C7C38]'
+                              }`}>
+                              {isSelected && <CheckCircle2 size={13} />}
+                              Room {room.roomNumber}
+                              <span className="text-xs opacity-75">₹{room.price}/night</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Step 3: Room selection */}
-          {selectedCategory && (
-            <div>
-              <p className="text-sm font-semibold text-gray-700 mb-2">
-                Select room(s) from <span className="text-amber-700">{selectedCategory.categoryName}</span>
-                <span className="text-gray-400 font-normal ml-1">(click to select, multiple allowed)</span>
-              </p>
+          {/* Selected rooms summary across all categories */}
+          {selectedRooms.length > 0 && (
+            <div className="mt-3 p-3 bg-[#FDF6E3] border border-[#E8D5A0] rounded-lg">
+              <p className="text-xs font-semibold text-[#3d2e10] mb-2">{selectedRooms.length} room(s) selected:</p>
               <div className="flex flex-wrap gap-2">
-                {selectedCategory.rooms.map((room) => {
-                  const isSelected = selectedRooms.find((r) => r._id === room._id);
-                  return (
-                    <button key={room._id} type="button" onClick={() => toggleRoom(room)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
-                        isSelected
-                          ? 'bg-amber-600 text-white border-amber-600'
-                          : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
-                      }`}>
-                      {isSelected && <CheckCircle2 size={13} />}
-                      {room.roomNumber}
-                      <span className="text-xs opacity-75">₹{room.price}/night</span>
-                    </button>
-                  );
-                })}
+                {selectedRooms.map((r) => (
+                  <span key={r._id}
+                    className="flex items-center gap-1.5 bg-white border border-[#C9A84C] text-[#5a4228] text-xs px-2 py-1 rounded-full">
+                    Room {r.roomNumber} · ₹{r.price}/night
+                    <button type="button" onClick={() => toggleRoom(r)}
+                      className="text-red-400 hover:text-red-600 font-bold leading-none">&times;</button>
+                  </span>
+                ))}
               </div>
-
-              {selectedRooms.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2 items-center">
-                  <span className="text-xs text-gray-500">Selected:</span>
-                  {selectedRooms.map((r) => (
-                    <span key={r._id} className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-2 py-0.5 rounded-full">
-                      Room {r.roomNumber} · ₹{r.price}/night
-                    </span>
-                  ))}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -277,11 +412,15 @@ export default function AddBookingForm() {
               <input className={inputCls} value={guest.address} onChange={(e) => setGuest({ ...guest, address: e.target.value })} />
             </div>
             <div>
-              <label className={labelCls}>City</label>
-              <input className={inputCls} value={guest.city} onChange={(e) => setGuest({ ...guest, city: e.target.value })} />
+              <label className={labelCls}>Pin Code</label>
+              <input className={inputCls} maxLength={6} value={guest.pinCode} onChange={(e) => handlePinCode(e.target.value, setGuest)} />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className={labelCls}>City</label>
+              <input className={inputCls} value={guest.city} onChange={(e) => setGuest({ ...guest, city: e.target.value })} />
+            </div>
             <div>
               <label className={labelCls}>State</label>
               <input className={inputCls} value={guest.state} onChange={(e) => setGuest({ ...guest, state: e.target.value })} />
@@ -302,7 +441,7 @@ export default function AddBookingForm() {
             </div>
           </div>
           <div className="mb-4">
-            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-[#5a4e28] cursor-pointer">
               <input type="checkbox" checked={showCompany} onChange={(e) => setShowCompany(e.target.checked)} />
               Company Details
             </label>
@@ -325,7 +464,7 @@ export default function AddBookingForm() {
               <input className={inputCls} disabled={!guest.idType} value={guest.idNumber} onChange={(e) => setGuest({ ...guest, idNumber: e.target.value })} />
             </div>
             <div className="flex items-end">
-              <label className="flex items-center gap-2 text-sm text-amber-700 font-medium cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-[#8B7D3A] font-medium cursor-pointer">
                 <input type="checkbox" checked={guest.isVIP} onChange={(e) => setGuest({ ...guest, isVIP: e.target.checked })} />
                 VIP Guest
               </label>
@@ -386,42 +525,42 @@ export default function AddBookingForm() {
 
           {/* Bill Breakdown */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-4">
-            <div className="border border-gray-200 rounded-lg overflow-hidden text-sm">
+            <div className="border border-[#e0d5a0] rounded-lg overflow-hidden text-sm">
               <table className="w-full">
                 <tbody>
                   {selectedRooms.map((r) => (
-                    <tr key={r._id} className="border-b border-gray-100">
-                      <td className="px-4 py-2 text-gray-600">Room {r.roomNumber} ({days}d):</td>
-                      <td className="px-4 py-2 text-right font-medium">₹{(r.price * days).toFixed(2)}</td>
+                    <tr key={r._id} className="border-b border-[#f0e8c8]">
+                      <td className="px-4 py-2 text-[#5a4e28]">Room {r.roomNumber} ({days}d):</td>
+                      <td className="px-4 py-2 text-right font-medium text-[#3d3416]">₹{(r.price * days).toFixed(2)}</td>
                     </tr>
                   ))}
                   {extraBedCost > 0 && (
-                    <tr className="border-b border-gray-100">
-                      <td className="px-4 py-2 text-gray-600">Extra Bed:</td>
-                      <td className="px-4 py-2 text-right">₹{extraBedCost.toFixed(2)}</td>
+                    <tr className="border-b border-[#f0e8c8]">
+                      <td className="px-4 py-2 text-[#5a4e28]">Extra Bed:</td>
+                      <td className="px-4 py-2 text-right text-[#3d3416]">₹{extraBedCost.toFixed(2)}</td>
                     </tr>
                   )}
-                  <tr className="border-b border-gray-200 bg-gray-50">
-                    <td className="px-4 py-2 font-semibold text-gray-700">Subtotal:</td>
-                    <td className="px-4 py-2 text-right font-semibold">₹{taxableAmount.toFixed(2)}</td>
+                  <tr className="border-b border-[#e0d5a0] bg-[#fdf8ec]">
+                    <td className="px-4 py-2 font-semibold text-[#3d3416]">Subtotal:</td>
+                    <td className="px-4 py-2 text-right font-semibold text-[#3d3416]">₹{taxableAmount.toFixed(2)}</td>
                   </tr>
-                  <tr className="border-b border-gray-100">
-                    <td className="px-4 py-2 text-gray-600">CGST ({booking.cgstRate}%):</td>
-                    <td className="px-4 py-2 text-right">₹{cgst.toFixed(2)}</td>
+                  <tr className="border-b border-[#f0e8c8]">
+                    <td className="px-4 py-2 text-[#5a4e28]">CGST ({booking.cgstRate}%):</td>
+                    <td className="px-4 py-2 text-right text-[#3d3416]">₹{cgst.toFixed(2)}</td>
                   </tr>
-                  <tr className="border-b border-gray-100">
-                    <td className="px-4 py-2 text-gray-600">SGST ({booking.sgstRate}%):</td>
-                    <td className="px-4 py-2 text-right">₹{sgst.toFixed(2)}</td>
+                  <tr className="border-b border-[#f0e8c8]">
+                    <td className="px-4 py-2 text-[#5a4e28]">SGST ({booking.sgstRate}%):</td>
+                    <td className="px-4 py-2 text-right text-[#3d3416]">₹{sgst.toFixed(2)}</td>
                   </tr>
                   {booking.discount > 0 && (
-                    <tr className="border-b border-gray-100">
-                      <td className="px-4 py-2 text-gray-600">Discount:</td>
+                    <tr className="border-b border-[#f0e8c8]">
+                      <td className="px-4 py-2 text-[#5a4e28]">Discount:</td>
                       <td className="px-4 py-2 text-right text-green-600">-₹{Number(booking.discount).toFixed(2)}</td>
                     </tr>
                   )}
-                  <tr className="bg-amber-50">
-                    <td className="px-4 py-2 font-bold text-gray-800">Total:</td>
-                    <td className="px-4 py-2 text-right font-bold text-amber-700">₹{totalWithTax.toFixed(2)}</td>
+                  <tr className="bg-[#fdf8ec]">
+                    <td className="px-4 py-2 font-bold text-[#3d3416]">Total:</td>
+                    <td className="px-4 py-2 text-right font-bold text-[#8B7D3A]">₹{totalWithTax.toFixed(2)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -448,10 +587,10 @@ export default function AddBookingForm() {
           </div>
 
           {/* Advance Payments */}
-          <div className="border-t border-gray-100 pt-4">
+          <div className="border-t border-[#e0d5a0] pt-4">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-semibold text-gray-700">Advance Payments</h4>
-              <button type="button" onClick={addAdvancePayment} className="bg-amber-600 hover:bg-amber-700 text-white text-xs px-3 py-1.5 rounded transition-colors">
+              <h4 className="text-sm font-semibold text-[#3d3416]">Advance Payments</h4>
+              <button type="button" onClick={addAdvancePayment} className="bg-[#9C7C38] hover:bg-[#7A5F28] text-white text-xs px-3 py-1.5 rounded transition-colors">
                 + Add Payment
               </button>
             </div>
@@ -491,15 +630,13 @@ export default function AddBookingForm() {
 
         {/* Actions */}
         <div className="flex justify-center gap-4 pb-8">
-          <button type="button" onClick={handleReset} className="border border-gray-400 text-gray-700 hover:bg-gray-100 px-8 py-2.5 rounded text-sm font-medium transition-colors">
-            Reset
-          </button>
           <button type="submit" disabled={loading || selectedRooms.length === 0}
-            className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-10 py-2.5 rounded text-sm font-semibold transition-colors">
+            className="bg-[#9C7C38] hover:bg-[#7A5F28] disabled:opacity-50 text-white px-10 py-2.5 rounded text-sm font-semibold transition-colors">
             {loading ? 'Submitting...' : `Submit Booking${selectedRooms.length > 1 ? ` (${selectedRooms.length} rooms)` : ''}`}
           </button>
         </div>
       </form>
+      </div>
     </div>
   );
 }

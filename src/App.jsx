@@ -8,6 +8,7 @@ import Register from './pages/Auth/Register';
 import Dashboard from './pages/Dashboard/Dashboard';
 import RoomCategories from './pages/RoomCategories/RoomCategories';
 import Rooms from './pages/Rooms/Rooms';
+import RoomStatus from './pages/Rooms/RoomStatus';
 import Guests from './pages/Guests/Guests';
 import Bookings from './pages/Bookings/Bookings';
 import AddBookingForm from './pages/Bookings/AddBookingForm';
@@ -27,6 +28,7 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/rooms" element={<Rooms />} />
+              <Route path="/room-status" element={<RoomStatus />} />
               <Route path="/room-categories" element={<RoomCategories />} />
               <Route path="/guests" element={<Guests />} />
               <Route path="/bookings" element={<Bookings />} />

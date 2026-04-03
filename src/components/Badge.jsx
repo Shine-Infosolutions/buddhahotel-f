@@ -3,6 +3,7 @@ export default function Badge({ status }) {
     available: 'bg-green-100 text-green-700',
     occupied: 'bg-red-100 text-red-700',
     maintenance: 'bg-yellow-100 text-yellow-700',
+    booked: 'bg-blue-100 text-blue-700',
     confirmed: 'bg-blue-100 text-blue-700',
     checked_in: 'bg-green-100 text-green-700',
     checked_out: 'bg-gray-100 text-gray-700',
