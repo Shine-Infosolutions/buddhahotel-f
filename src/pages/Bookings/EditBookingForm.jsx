@@ -24,25 +24,38 @@ export default function EditBookingForm() {
   const [showCompany, setShowCompany] = useState(false);
   const [advancePayments, setAdvancePayments] = useState([]);
   const [loading, setLoading] = useState(false);
+  // extraBed for the single room: { enabled, chargePerDay, from, to }
+  const [extraBed, setExtraBed] = useState({ enabled: false, chargePerDay: '', from: '', to: '' });
 
-  useEffect(() => {
+  const loadBookingData = () => {
     getBooking(id).then((r) => {
       const b = r.data;
       setGuest(b.guest);
       setShowCompany(!!b.guest?.companyDetails);
       setAdvancePayments(b.advancePayments || []);
       if (b.room) setSelectedRoom(b.room);
+      // Load existing extra bed
+      const eb = b.extraBeds?.[0];
+      if (eb) setExtraBed({ enabled: true, chargePerDay: eb.chargePerDay || '', from: eb.from?.slice(0, 10) || '', to: eb.to?.slice(0, 10) || '' });
+      else setExtraBed({ enabled: false, chargePerDay: '', from: '', to: '' });
       setBooking({
         room: b.room?._id, checkIn: b.checkIn?.slice(0, 10), checkOut: b.checkOut?.slice(0, 10),
         checkInTime: b.checkInTime || '12:00', checkOutTime: b.checkOutTime || '12:00',
         numberOfRooms: b.numberOfRooms || 1, arrivalFrom: b.arrivalFrom || '',
-        purposeOfVisit: b.purposeOfVisit || '', extraBedChargePerDay: b.extraBedChargePerDay || 0,
+        purposeOfVisit: b.purposeOfVisit || '',
         remarks: b.remarks || '', status: b.status, cgstRate: b.cgstRate ?? 2.5,
         sgstRate: b.sgstRate ?? 2.5, discount: b.discount || 0,
         paymentMode: b.paymentMode || '', paymentStatus: b.paymentStatus || 'pending',
         billingInstruction: b.billingInstruction || '',
       });
-    });
+      setAvailabilityResult(null);
+      setSelectedCategory(null);
+      toast.success('Form reset to original values');
+    }).catch(() => toast.error('Failed to reload booking data'));
+  };
+
+  useEffect(() => {
+    loadBookingData();
   }, [id]);
 
   const handleCheckAvailability = async () => {
@@ -67,7 +80,12 @@ export default function EditBookingForm() {
     : 0;
   const roomCost = selectedRoom ? days * selectedRoom.price : 0;
 
-  const extraBedCost = (booking?.extraBedChargePerDay || 0) * days;
+  const extraBedCost = (() => {
+    if (!extraBed.enabled || !extraBed.chargePerDay || !extraBed.from || !extraBed.to) return 0;
+    const ebDays = Math.max(1, Math.ceil((new Date(extraBed.to) - new Date(extraBed.from)) / (1000 * 60 * 60 * 24)));
+    return Number(extraBed.chargePerDay) * ebDays;
+  })();
+
   const taxableAmount = roomCost + extraBedCost;
   const cgst = (taxableAmount * (booking?.cgstRate || 0)) / 100;
   const sgst = (taxableAmount * (booking?.sgstRate || 0)) / 100;
@@ -101,7 +119,10 @@ export default function EditBookingForm() {
     try {
       const { _id, __v, createdAt, updatedAt, ...guestData } = guest;
       await updateGuest(_id, guestData);
-      await updateBooking(id, { ...booking, guest: _id, taxableAmount, totalAmount: totalWithTax, advancePayments });
+      const extraBeds = extraBed.enabled && extraBed.chargePerDay && extraBed.from && extraBed.to
+        ? [{ room: booking.room, chargePerDay: Number(extraBed.chargePerDay), from: extraBed.from, to: extraBed.to }]
+        : [];
+      await updateBooking(id, { ...booking, guest: _id, taxableAmount, totalAmount: totalWithTax, advancePayments, extraBeds });
       toast.success('Booking updated');
       navigate('/bookings');
     } catch (err) {
@@ -148,13 +169,47 @@ export default function EditBookingForm() {
             </div>
           </div>
 
-          {/* Current room */}
+          {/* Current room + extra bed */}
           {selectedRoom && (
-            <div className="mb-4 flex items-center gap-2 text-sm text-[#5a4228]">
-              <span>Current Room:</span>
-              <span className="bg-[#FDF6E3] border border-[#E8D5A0] text-[#5a4228] px-2 py-0.5 rounded-full">
-                Room {selectedRoom.roomNumber} · {selectedRoom.category?.name} · ₹{selectedRoom.price}/night
-              </span>
+            <div className="mb-4">
+              <div className="flex items-center gap-2 text-sm text-[#5a4228] mb-3">
+                <span>Current Room:</span>
+                <span className="bg-[#FDF6E3] border border-[#E8D5A0] text-[#5a4228] px-2 py-0.5 rounded-full">
+                  Room {selectedRoom.roomNumber} · {selectedRoom.category?.name} · ₹{selectedRoom.price}/night
+                </span>
+              </div>
+              {/* Extra bed for this room */}
+              <div className="border border-[#E8D5A0] rounded-lg bg-white p-3">
+                <label className="flex items-center gap-2 text-sm text-[#5a4228] cursor-pointer mb-2">
+                  <input type="checkbox" checked={extraBed.enabled}
+                    onChange={(e) => setExtraBed({ ...extraBed, enabled: e.target.checked })} />
+                  Add Extra Bed for Room {selectedRoom.roomNumber}
+                </label>
+                {extraBed.enabled && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pl-5">
+                    <div>
+                      <label className={labelCls}>Charge/Day (₹)</label>
+                      <input type="number" className={inputCls} placeholder="e.g. 500"
+                        value={extraBed.chargePerDay}
+                        onChange={(e) => setExtraBed({ ...extraBed, chargePerDay: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>From Date</label>
+                      <input type="date" className={inputCls}
+                        min={booking.checkIn} max={booking.checkOut}
+                        value={extraBed.from}
+                        onChange={(e) => setExtraBed({ ...extraBed, from: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>To Date</label>
+                      <input type="date" className={inputCls}
+                        min={extraBed.from || booking.checkIn} max={booking.checkOut}
+                        value={extraBed.to}
+                        onChange={(e) => setExtraBed({ ...extraBed, to: e.target.value })} />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -352,12 +407,6 @@ export default function EditBookingForm() {
               <input className={inputCls} value={booking.purposeOfVisit} onChange={(e) => setBooking({ ...booking, purposeOfVisit: e.target.value })} />
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-            <div>
-              <label className={labelCls}>Extra Bed Charge per Day (₹)</label>
-              <input type="number" className={inputCls} value={booking.extraBedChargePerDay} onChange={(e) => setBooking({ ...booking, extraBedChargePerDay: Number(e.target.value) })} />
-            </div>
-          </div>
           <div>
             <label className={labelCls}>Remarks</label>
             <textarea rows={3} className={`${inputCls} resize-none`} value={booking.remarks} onChange={(e) => setBooking({ ...booking, remarks: e.target.value })} />
@@ -391,7 +440,9 @@ export default function EditBookingForm() {
                   </tr>
                   {extraBedCost > 0 && (
                     <tr className="border-b border-[#f0e8c8]">
-                      <td className="px-4 py-2 text-[#5a4e28]">Extra Bed:</td>
+                      <td className="px-4 py-2 text-[#5a4e28]">
+                        Extra Bed ({Math.max(1, Math.ceil((new Date(extraBed.to) - new Date(extraBed.from)) / (1000*60*60*24)))}d · ₹{extraBed.chargePerDay}/day):
+                      </td>
                       <td className="px-4 py-2 text-right text-[#3d3416]">₹{extraBedCost.toFixed(2)}</td>
                     </tr>
                   )}
@@ -483,6 +534,10 @@ export default function EditBookingForm() {
         <div className="flex justify-center gap-4 pb-8">
           <button type="button" onClick={() => navigate('/bookings')} className={btnOutline}>
             Cancel
+          </button>
+          <button type="button" onClick={loadBookingData}
+            className="border-2 border-[#9C7C38] text-[#9C7C38] hover:bg-[#FDF6E3] px-8 py-2.5 rounded text-sm font-semibold transition-colors">
+            Reset Form
           </button>
           <button type="submit" disabled={loading} className="bg-[#9C7C38] hover:bg-[#7A5F28] disabled:opacity-50 text-white px-10 py-2.5 rounded text-sm font-semibold transition-colors">
             {loading ? 'Updating...' : 'Update Booking'}
