@@ -25,7 +25,9 @@ export default function InvoicePage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading Invoice...</div>;
   if (!inv || !booking) return <div className="min-h-screen flex items-center justify-center text-red-500">Failed to load invoice.</div>;
 
-  const calcRoomAmt = () => inv.items?.filter(i => i.particulars?.toLowerCase().includes('room') || i.particulars?.toLowerCase().includes('extra bed')).reduce((s, i) => s + (i.amount || 0), 0) || 0;
+  const calcRoomAmt = () => inv.items?.filter(i => i.particulars?.toLowerCase().includes('room rent')).reduce((s, i) => s + (i.amount || 0), 0) || 0;
+  const calcExtraBedAmt = () => inv.summary?.extraBedAmount || 0;
+  const calcSubTotal = () => inv.items?.reduce((s, i) => s + (i.amount || 0), 0) || 0;
   const taxable = () => inv.summary?.taxableAmount || 0;
   const cgst = () => inv.summary?.cgstAmount || 0;
   const sgst = () => inv.summary?.sgstAmount || 0;
@@ -181,7 +183,7 @@ export default function InvoicePage() {
                       <td className="p-1 border border-black text-right font-bold">₹{calcRoomAmt().toFixed(2)}</td>
                       <td className="p-1 border border-black text-right font-bold">₹{taxable().toFixed(2)}</td>
                       <td className="p-1 border border-black"></td>
-                      <td className="p-1 border border-black text-right font-bold">₹{taxable().toFixed(2)}</td>
+                      <td className="p-1 border border-black text-right font-bold">₹{calcSubTotal().toFixed(2)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -220,7 +222,8 @@ export default function InvoicePage() {
                     <tbody>
                       {[
                         ['Room Amount:', `₹${calcRoomAmt().toFixed(2)}`],
-                        ['Room After Discount:', `₹${(calcRoomAmt() - (inv.summary?.discount || 0)).toFixed(2)}`],
+                        ...(calcExtraBedAmt() > 0 ? [['Extra Bed Charge:', `₹${calcExtraBedAmt().toFixed(2)}`]] : []),
+                        ['Room After Discount:', `₹${(calcSubTotal() - (inv.summary?.discount || 0)).toFixed(2)}`],
                         ['Total Taxable Amount:', `₹${taxable().toFixed(2)}`],
                         [`SGST (${inv.taxes?.sgstRate || 0}%):`, `₹${sgst().toFixed(2)}`],
                         [`CGST (${inv.taxes?.cgstRate || 0}%):`, `₹${cgst().toFixed(2)}`],
