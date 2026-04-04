@@ -148,7 +148,7 @@ export default function Bookings() {
                         className="text-blue-500 hover:text-blue-700"><Pencil size={15} /></button>
                       <button title="Print"
                         className="text-gray-400 hover:text-gray-600"><Printer size={15} /></button>
-                      <button title="Invoice"
+                      <button onClick={() => navigate('/invoice', { state: { bookingId: b._id } })} title="Invoice"
                         className="text-green-500 hover:text-green-700"><FileText size={15} /></button>
                       <button onClick={() => handleDelete(b._id)} title="Delete"
                         disabled={b.status === 'checked_out'}
