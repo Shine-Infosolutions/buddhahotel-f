@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getBooking, updateBooking, checkAvailability } from '../../api/bookings';
 import { updateGuest } from '../../api/guests';
-import { BedDouble, User, Info, CreditCard, Search, CheckCircle2 } from 'lucide-react';
+import { BedDouble, User, Info, CreditCard, Search, CheckCircle2, Upload, Camera, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const sectionTitle = (icon, title) => (
@@ -22,22 +22,42 @@ export default function EditBookingForm() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [showCompany, setShowCompany] = useState(false);
+  const [guestPhoto, setGuestPhoto] = useState(null);
+  const [idProofPhotos, setIdProofPhotos] = useState([]);
+  const [existingGuestPhoto, setExistingGuestPhoto] = useState('');
+  const [existingIdProofPhotos, setExistingIdProofPhotos] = useState([]);
+  const [showCamera, setShowCamera] = useState(false);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
   const [advancePayments, setAdvancePayments] = useState([]);
   const [loading, setLoading] = useState(false);
   // extraBed for the single room: { enabled, chargePerDay, from, to }
   const [extraBed, setExtraBed] = useState({ enabled: false, chargePerDay: '', from: '', to: '' });
+  // Custom price for the room
+  const [customPrice, setCustomPrice] = useState('');
+  // Room discount: { type, value }
+  const [roomDiscount, setRoomDiscount] = useState({ type: 'fixed', value: '' });
 
   const loadBookingData = () => {
     getBooking(id).then((r) => {
       const b = r.data;
       setGuest(b.guest);
       setShowCompany(!!b.guest?.companyDetails);
+      setExistingGuestPhoto(b.guest?.guestPhoto || '');
+      setExistingIdProofPhotos(b.guest?.idProofPhotos || []);
       setAdvancePayments(b.advancePayments || []);
       if (b.room) setSelectedRoom(b.room);
       // Load existing extra bed
       const eb = b.extraBeds?.[0];
       if (eb) setExtraBed({ enabled: true, chargePerDay: eb.chargePerDay || '', from: eb.from?.slice(0, 10) || '', to: eb.to?.slice(0, 10) || '' });
       else setExtraBed({ enabled: false, chargePerDay: '', from: '', to: '' });
+      // Load custom price if exists
+      const cp = b.customPrices?.find((p) => p.room === b.room?._id || p.room === b.room);
+      setCustomPrice(cp?.price || '');
+      // Load room discount if exists
+      const rd = b.roomDiscounts?.find((d) => d.room === b.room?._id || d.room === b.room);
+      setRoomDiscount({ type: rd?.discountType || 'fixed', value: rd?.discountValue || '' });
       setBooking({
         room: b.room?._id, checkIn: b.checkIn?.slice(0, 10), checkOut: b.checkOut?.slice(0, 10),
         checkInTime: b.checkInTime || '12:00', checkOutTime: b.checkOutTime || '12:00',
@@ -78,7 +98,20 @@ export default function EditBookingForm() {
   const days = booking?.checkIn && booking?.checkOut
     ? Math.max(1, Math.ceil((new Date(booking.checkOut) - new Date(booking.checkIn)) / (1000 * 60 * 60 * 24)))
     : 0;
-  const roomCost = selectedRoom ? days * selectedRoom.price : 0;
+  const roomPrice = customPrice ? Number(customPrice) : (selectedRoom?.price || 0);
+  const roomSubtotal = roomPrice * days;
+  
+  // Calculate room discount
+  let roomDiscountAmount = 0;
+  if (roomDiscount?.value) {
+    if (roomDiscount.type === 'percentage') {
+      roomDiscountAmount = (roomSubtotal * Number(roomDiscount.value)) / 100;
+    } else {
+      roomDiscountAmount = Number(roomDiscount.value);
+    }
+  }
+  
+  const roomCost = roomSubtotal - roomDiscountAmount;
 
   const extraBedCost = (() => {
     if (!extraBed.enabled || !extraBed.chargePerDay || !extraBed.from || !extraBed.to) return 0;
@@ -113,16 +146,97 @@ export default function EditBookingForm() {
   };
   const removeAdvancePayment = (i) => setAdvancePayments(advancePayments.filter((_, idx) => idx !== i));
 
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      });
+      setShowCamera(true);
+      // Wait for next tick to ensure modal is rendered
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          streamRef.current = stream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current.play().catch(err => console.error('Video play error:', err));
+          };
+        }
+      }, 100);
+    } catch (err) {
+      console.error('Camera error:', err);
+      toast.error('Camera access denied or not available');
+      setShowCamera(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (canvasRef.current && videoRef.current) {
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      canvas.toBlob((blob) => {
+        const file = new File([blob], `guest-photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        setGuestPhoto(file);
+        stopCamera();
+        toast.success('Photo captured!');
+      }, 'image/jpeg');
+    }
+  };
+
+  const removeExistingIdProof = (url) => {
+    setExistingIdProofPhotos(existingIdProofPhotos.filter(p => p !== url));
+  };
+
+  const removeNewIdProof = (index) => {
+    setIdProofPhotos(idProofPhotos.filter((_, i) => i !== index));
+  };
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
       const { _id, __v, createdAt, updatedAt, ...guestData } = guest;
+      if (guestPhoto) guestData.guestPhoto = guestPhoto;
+      if (idProofPhotos.length > 0 || existingIdProofPhotos.length !== (guest.idProofPhotos || []).length) {
+        guestData.idProofPhotos = idProofPhotos;
+        guestData.existingIdProofPhotos = existingIdProofPhotos;
+      }
       await updateGuest(_id, guestData);
       const extraBeds = extraBed.enabled && extraBed.chargePerDay && extraBed.from && extraBed.to
         ? [{ room: booking.room, chargePerDay: Number(extraBed.chargePerDay), from: extraBed.from, to: extraBed.to }]
         : [];
-      await updateBooking(id, { ...booking, guest: _id, taxableAmount, totalAmount: totalWithTax, advancePayments, extraBeds });
+      const customPrices = customPrice ? [{ room: booking.room, price: Number(customPrice) }] : [];
+      const roomDiscounts = roomDiscount?.value ? [{ room: booking.room, discountType: roomDiscount.type, discountValue: Number(roomDiscount.value) }] : [];
+      
+      // Filter and format advance payments - only include valid entries
+      const validAdvancePayments = advancePayments
+        .filter(ap => ap.amount && ap.method && ap.date)
+        .map(ap => ({
+          amount: Number(ap.amount),
+          method: ap.method,
+          date: ap.date,
+          note: ap.note || ''
+        }));
+      
+      await updateBooking(id, { ...booking, guest: _id, taxableAmount, totalAmount: totalWithTax, advancePayments: validAdvancePayments, extraBeds, customPrices, roomDiscounts });
       toast.success('Booking updated');
       navigate('/bookings');
     } catch (err) {
@@ -175,9 +289,45 @@ export default function EditBookingForm() {
               <div className="flex items-center gap-2 text-sm text-[#5a4228] mb-3">
                 <span>Current Room:</span>
                 <span className="bg-[#FDF6E3] border border-[#E8D5A0] text-[#5a4228] px-2 py-0.5 rounded-full">
-                  Room {selectedRoom.roomNumber} · {selectedRoom.category?.name} · ₹{selectedRoom.price}/night
+                  Room {selectedRoom.roomNumber} · {selectedRoom.category?.name} · ₹{selectedRoom.price}/night (default)
                 </span>
               </div>
+              
+              {/* Custom Price */}
+              <div className="mb-3">
+                <label className={labelCls}>Custom Price per Night (₹) - Optional</label>
+                <input 
+                  type="number" 
+                  className={inputCls} 
+                  placeholder={`Default: ₹${selectedRoom.price}`}
+                  value={customPrice}
+                  onChange={(e) => setCustomPrice(e.target.value)} 
+                />
+                <p className="text-xs text-[#8B7D3A] mt-1">💡 Leave empty to use default price. Enter custom price for special rates.</p>
+              </div>
+
+              {/* Room Discount */}
+              <div className="mb-3">
+                <label className={labelCls}>Room Discount - Optional</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <select 
+                    className={inputCls}
+                    value={roomDiscount.type}
+                    onChange={(e) => setRoomDiscount({ ...roomDiscount, type: e.target.value })}>
+                    <option value="fixed">Fixed Amount (₹)</option>
+                    <option value="percentage">Percentage (%)</option>
+                  </select>
+                  <input 
+                    type="number" 
+                    className={inputCls} 
+                    placeholder={roomDiscount.type === 'percentage' ? 'e.g. 10' : 'e.g. 500'}
+                    value={roomDiscount.value}
+                    onChange={(e) => setRoomDiscount({ ...roomDiscount, value: e.target.value })} 
+                  />
+                </div>
+                <p className="text-xs text-[#8B7D3A] mt-1">💰 Apply discount on this room (before taxes)</p>
+              </div>
+
               {/* Extra bed for this room */}
               <div className="border border-[#E8D5A0] rounded-lg bg-white p-3">
                 <label className="flex items-center gap-2 text-sm text-[#5a4228] cursor-pointer mb-2">
@@ -378,7 +528,128 @@ export default function EditBookingForm() {
               </label>
             </div>
           </div>
+
+          {/* Photo Uploads */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className={labelCls}>Guest Photo</label>
+              {(existingGuestPhoto || guestPhoto) && (
+                <div className="mb-2 relative inline-block">
+                  <img src={guestPhoto ? URL.createObjectURL(guestPhoto) : existingGuestPhoto} alt="Guest" className="w-24 h-24 object-cover rounded border border-[#E8D5A0]" />
+                  <button type="button" onClick={() => { setGuestPhoto(null); setExistingGuestPhoto(''); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600">
+                    <X size={14} />
+                  </button>
+                  <p className="text-xs text-[#8B7D3A] mt-1">✅ {guestPhoto ? 'New photo' : 'Current photo'}</p>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <input 
+                    type="file" 
+                    accept="image/jpeg,image/jpg,image/png" 
+                    onChange={(e) => e.target.files[0] && setGuestPhoto(e.target.files[0])}
+                    className="hidden" 
+                    id="guestPhoto" 
+                  />
+                  <label 
+                    htmlFor="guestPhoto" 
+                    className="flex items-center gap-2 border border-[#C9A84C] rounded px-3 py-2 text-sm w-full cursor-pointer hover:bg-[#FDF6E3] transition">
+                    <Upload size={16} className="text-[#9C7C38]" />
+                    <span className="text-[#5a4228] truncate">{guestPhoto ? guestPhoto.name : existingGuestPhoto ? 'Change photo' : 'Choose photo'}</span>
+                  </label>
+                </div>
+                <button type="button" onClick={startCamera} className="bg-[#9C7C38] hover:bg-[#7A5F28] text-white px-3 py-2 rounded transition-colors">
+                  <Camera size={16} />
+                </button>
+              </div>
+              <p className="text-xs text-[#8B7D3A] mt-1">📷 Upload or capture photo (Max 5MB)</p>
+            </div>
+            <div>
+              <label className={labelCls}>ID Proof Photos (Multiple)</label>
+              {(existingIdProofPhotos.length > 0 || idProofPhotos.length > 0) && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {existingIdProofPhotos.map((url, i) => (
+                    <div key={`existing-${i}`} className="relative inline-block">
+                      {url.endsWith('.pdf') ? (
+                        <div className="w-20 h-20 border border-[#E8D5A0] rounded flex items-center justify-center bg-gray-50">
+                          <a href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#9C7C38]">📄 PDF</a>
+                        </div>
+                      ) : (
+                        <img src={url} alt={`ID ${i+1}`} className="w-20 h-20 object-cover rounded border border-[#E8D5A0]" />
+                      )}
+                      <button type="button" onClick={() => removeExistingIdProof(url)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600">
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  {idProofPhotos.map((file, i) => (
+                    <div key={`new-${i}`} className="relative inline-block">
+                      {file.type === 'application/pdf' ? (
+                        <div className="w-20 h-20 border border-[#E8D5A0] rounded flex items-center justify-center bg-gray-50">
+                          <span className="text-xs text-[#9C7C38]">📄 PDF</span>
+                        </div>
+                      ) : (
+                        <img src={URL.createObjectURL(file)} alt={`New ID ${i+1}`} className="w-20 h-20 object-cover rounded border border-[#E8D5A0]" />
+                      )}
+                      <button type="button" onClick={() => removeNewIdProof(i)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600">
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="relative">
+                <input 
+                  type="file" 
+                  accept="image/jpeg,image/jpg,image/png,application/pdf" 
+                  multiple
+                  onChange={(e) => setIdProofPhotos([...idProofPhotos, ...Array.from(e.target.files)])}
+                  className="hidden" 
+                  id="idProofPhotos" 
+                />
+                <label 
+                  htmlFor="idProofPhotos" 
+                  className="flex items-center gap-2 border border-[#C9A84C] rounded px-3 py-2 text-sm w-full cursor-pointer hover:bg-[#FDF6E3] transition">
+                  <Upload size={16} className="text-[#9C7C38]" />
+                  <span className="text-[#5a4228]">Add more ID proofs ({existingIdProofPhotos.length + idProofPhotos.length} total)</span>
+                </label>
+              </div>
+              <p className="text-xs text-[#8B7D3A] mt-1">📄 JPEG, JPG, PNG, PDF (Max 5MB each, up to 10 files)</p>
+            </div>
+          </div>
         </div>
+
+        {/* Camera Modal */}
+        {showCamera && (
+          <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl p-6 max-w-2xl w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-[#3d2e10]">Capture Guest Photo</h3>
+                <button type="button" onClick={stopCamera} className="text-[#9C7C38] hover:text-[#7A5F28]">
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="relative bg-black rounded-lg overflow-hidden mb-4" style={{ minHeight: '400px' }}>
+                <video 
+                  ref={videoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted
+                  className="w-full h-full object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
+                />
+                <canvas ref={canvasRef} className="hidden" />
+              </div>
+              <div className="flex gap-3 justify-center">
+                <button type="button" onClick={stopCamera} className={btnOutline}>Cancel</button>
+                <button type="button" onClick={capturePhoto} className={btnPrimary}>
+                  <Camera size={16} className="inline mr-2" />
+                  Capture Photo
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stay Information */}
         <div className={sectionCls}>
@@ -435,9 +706,19 @@ export default function EditBookingForm() {
               <table className="w-full">
                 <tbody>
                   <tr className="border-b border-[#f0e8c8]">
-                    <td className="px-4 py-2 text-[#5a4e28]">Room Cost ({days} days):</td>
-                    <td className="px-4 py-2 text-right font-medium text-[#3d3416]">₹{roomCost.toFixed(2)}</td>
+                    <td className="px-4 py-2 text-[#5a4e28]">
+                      Room Cost ({days} days){customPrice && <span className="text-xs text-orange-600 ml-1">(Custom)</span>}:
+                    </td>
+                    <td className="px-4 py-2 text-right font-medium text-[#3d3416]">₹{roomSubtotal.toFixed(2)}</td>
                   </tr>
+                  {roomDiscountAmount > 0 && (
+                    <tr className="border-b border-[#f0e8c8]">
+                      <td className="px-4 py-2 text-[#5a4e28] pl-8">
+                        Room Discount ({roomDiscount.type === 'percentage' ? `${roomDiscount.value}%` : `₹${roomDiscount.value}`}):
+                      </td>
+                      <td className="px-4 py-2 text-right text-green-600">-₹{roomDiscountAmount.toFixed(2)}</td>
+                    </tr>
+                  )}
                   {extraBedCost > 0 && (
                     <tr className="border-b border-[#f0e8c8]">
                       <td className="px-4 py-2 text-[#5a4e28]">
@@ -468,6 +749,20 @@ export default function EditBookingForm() {
                     <td className="px-4 py-2 font-bold text-[#3d3416]">Total:</td>
                     <td className="px-4 py-2 text-right font-bold text-[#8B7D3A]">₹{totalWithTax.toFixed(2)}</td>
                   </tr>
+                  {advancePayments.filter(ap => ap.amount && ap.method && ap.date).map((ap, i) => (
+                    <tr key={`adv-${i}`} className="border-t border-[#f0e8c8]">
+                      <td className="px-4 py-2 text-[#5a4e28]">Advance ({ap.method}):</td>
+                      <td className="px-4 py-2 text-right text-blue-600">-₹{Number(ap.amount).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {advancePayments.filter(ap => ap.amount && ap.method && ap.date).length > 0 && (
+                    <tr className="bg-[#fdf8ec] border-t-2 border-[#e0d5a0]">
+                      <td className="px-4 py-2 font-bold text-[#3d3416]">Balance Due:</td>
+                      <td className="px-4 py-2 text-right font-bold text-red-600">
+                        ₹{(totalWithTax - advancePayments.filter(ap => ap.amount && ap.method && ap.date).reduce((sum, ap) => sum + Number(ap.amount), 0)).toFixed(2)}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -534,10 +829,6 @@ export default function EditBookingForm() {
         <div className="flex justify-center gap-4 pb-8">
           <button type="button" onClick={() => navigate('/bookings')} className={btnOutline}>
             Cancel
-          </button>
-          <button type="button" onClick={loadBookingData}
-            className="border-2 border-[#9C7C38] text-[#9C7C38] hover:bg-[#FDF6E3] px-8 py-2.5 rounded text-sm font-semibold transition-colors">
-            Reset Form
           </button>
           <button type="submit" disabled={loading} className="bg-[#9C7C38] hover:bg-[#7A5F28] disabled:opacity-50 text-white px-10 py-2.5 rounded text-sm font-semibold transition-colors">
             {loading ? 'Updating...' : 'Update Booking'}

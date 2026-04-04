@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createBooking, checkAvailability, previewNumbers, searchGuestByQuery, getGuestByGRC } from '../../api/bookings';
 import { createGuest } from '../../api/guests';
-import { BedDouble, User, Info, CreditCard, Search, CheckCircle2, FileText } from 'lucide-react';
+import { BedDouble, User, Info, CreditCard, Search, CheckCircle2, FileText, Upload, Camera, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const emptyGuest = {
@@ -36,6 +36,12 @@ export default function AddBookingForm() {
   const [guest, setGuest] = useState(emptyGuest);
   const [booking, setBooking] = useState(emptyBooking);
   const [showCompany, setShowCompany] = useState(false);
+  const [guestPhoto, setGuestPhoto] = useState(null);
+  const [idProofPhotos, setIdProofPhotos] = useState([]);
+  const [showCamera, setShowCamera] = useState(false);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
   const [advancePayments, setAdvancePayments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState({ grcNumber: '', invoiceNumber: '' });
@@ -59,6 +65,10 @@ export default function AddBookingForm() {
   const [selectedRooms, setSelectedRooms] = useState([]);
   // Extra bed per room: { [roomId]: { enabled, chargePerDay, from, to } }
   const [extraBeds, setExtraBeds] = useState({});
+  // Custom price per room: { [roomId]: customPrice }
+  const [customPrices, setCustomPrices] = useState({});
+  // Discount per room: { [roomId]: { type, value } }
+  const [roomDiscounts, setRoomDiscounts] = useState({});
 
   const updateExtraBed = (roomId, field, value) => {
     setExtraBeds((prev) => ({ ...prev, [roomId]: { ...prev[roomId], [field]: value } }));
@@ -69,6 +79,8 @@ export default function AddBookingForm() {
       const exists = prev.find((r) => r._id === room._id);
       if (exists) {
         setExtraBeds((eb) => { const n = { ...eb }; delete n[room._id]; return n; });
+        setCustomPrices((cp) => { const n = { ...cp }; delete n[room._id]; return n; });
+        setRoomDiscounts((rd) => { const n = { ...rd }; delete n[room._id]; return n; });
         return prev.filter((r) => r._id !== room._id);
       }
       return [...prev, room];
@@ -86,7 +98,23 @@ export default function AddBookingForm() {
     return Number(eb.chargePerDay) * ebDays;
   };
 
-  const totalRoomCost = selectedRooms.reduce((sum, r) => sum + r.price * days, 0);
+  const totalRoomCost = selectedRooms.reduce((sum, r) => {
+    const price = customPrices[r._id] !== undefined ? Number(customPrices[r._id]) : r.price;
+    const roomSubtotal = price * days;
+    
+    // Calculate room discount
+    const discount = roomDiscounts[r._id];
+    let discountAmount = 0;
+    if (discount?.value) {
+      if (discount.type === 'percentage') {
+        discountAmount = (roomSubtotal * Number(discount.value)) / 100;
+      } else {
+        discountAmount = Number(discount.value);
+      }
+    }
+    
+    return sum + roomSubtotal - discountAmount;
+  }, 0);
   const totalExtraBedCost = selectedRooms.reduce((sum, r) => sum + calcExtraBedCost(r._id), 0);
   const taxableAmount = totalRoomCost + totalExtraBedCost;
   const cgst = (taxableAmount * (booking.cgstRate || 0)) / 100;
@@ -143,14 +171,32 @@ export default function AddBookingForm() {
     if (selectedRooms.length === 0) return toast.error('Please select at least one room');
     setLoading(true);
     try {
-      const guestRes = await createGuest(guest);
+      const guestData = { ...guest };
+      if (guestPhoto) guestData.guestPhoto = guestPhoto;
+      if (idProofPhotos.length > 0) guestData.idProofPhotos = idProofPhotos;
+      const guestRes = await createGuest(guestData);
+      
+      // Filter and format advance payments - only include valid entries
+      const validAdvancePayments = advancePayments
+        .filter(ap => ap.amount && ap.method && ap.date)
+        .map(ap => ({
+          amount: Number(ap.amount),
+          method: ap.method,
+          date: ap.date,
+          note: ap.note || ''
+        }));
+      
       await createBooking({
         ...booking,
         rooms: selectedRooms.map((r) => r._id),
+        customPrices: Object.entries(customPrices).map(([roomId, price]) => ({ room: roomId, price: Number(price) })),
+        roomDiscounts: Object.entries(roomDiscounts)
+          .filter(([, disc]) => disc?.value)
+          .map(([roomId, disc]) => ({ room: roomId, discountType: disc.type || 'fixed', discountValue: Number(disc.value) })),
         guest: guestRes.data._id,
         taxableAmount,
         totalAmount: totalWithTax,
-        advancePayments,
+        advancePayments: validAdvancePayments,
         extraBeds: Object.entries(extraBeds)
           .filter(([, eb]) => eb?.enabled)
           .map(([roomId, eb]) => ({ room: roomId, chargePerDay: eb.chargePerDay, from: eb.from, to: eb.to })),
@@ -209,11 +255,74 @@ export default function AddBookingForm() {
     setSelectedCategory(null);
     setSelectedRooms([]);
     setExtraBeds({});
+    setCustomPrices({});
+    setRoomDiscounts({});
     setShowCompany(false);
+    setGuestPhoto(null);
+    setIdProofPhotos([]);
     setGrcSearch('');
     setNameSearch('');
     setSearchResults([]);
   };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      });
+      setShowCamera(true);
+      // Wait for next tick to ensure modal is rendered
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          streamRef.current = stream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current.play().catch(err => console.error('Video play error:', err));
+          };
+        }
+      }, 100);
+    } catch (err) {
+      console.error('Camera error:', err);
+      toast.error('Camera access denied or not available');
+      setShowCamera(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (canvasRef.current && videoRef.current) {
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      canvas.toBlob((blob) => {
+        const file = new File([blob], `guest-photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        setGuestPhoto(file);
+        stopCamera();
+        toast.success('Photo captured!');
+      }, 'image/jpeg');
+    }
+  };
+
+  const removeIdProofPhoto = (index) => {
+    setIdProofPhotos(idProofPhotos.filter((_, i) => i !== index));
+  };
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, []);
 
   return (
     <div className="-mx-8 -mt-8">
@@ -370,15 +479,54 @@ export default function AddBookingForm() {
               <p className="text-xs font-semibold text-[#3d2e10]">{selectedRooms.length} room(s) selected:</p>
               {selectedRooms.map((r) => {
                 const eb = extraBeds[r._id] || {};
+                const customPrice = customPrices[r._id];
+                const discount = roomDiscounts[r._id] || {};
+                const displayPrice = customPrice !== undefined ? customPrice : r.price;
                 return (
                   <div key={r._id} className="border border-[#E8D5A0] rounded-lg bg-white p-3">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-semibold text-[#3d2e10]">
-                        Room {r.roomNumber} &middot; ₹{r.price}/night
+                        Room {r.roomNumber} &middot; ₹{r.price}/night (default)
                       </span>
                       <button type="button" onClick={() => toggleRoom(r)}
                         className="text-red-400 hover:text-red-600 text-xs font-bold">&times; Remove</button>
                     </div>
+                    
+                    {/* Custom Price */}
+                    <div className="mb-2">
+                      <label className={labelCls}>Custom Price per Night (₹) - Optional</label>
+                      <input 
+                        type="number" 
+                        className={inputCls} 
+                        placeholder={`Default: ₹${r.price}`}
+                        value={customPrice || ''}
+                        onChange={(e) => setCustomPrices((prev) => ({ ...prev, [r._id]: e.target.value }))} 
+                      />
+                      <p className="text-xs text-[#8B7D3A] mt-1">💡 Leave empty to use default price. Enter custom price for special rates.</p>
+                    </div>
+
+                    {/* Room Discount */}
+                    <div className="mb-2">
+                      <label className={labelCls}>Room Discount - Optional</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <select 
+                          className={inputCls}
+                          value={discount.type || 'fixed'}
+                          onChange={(e) => setRoomDiscounts((prev) => ({ ...prev, [r._id]: { ...prev[r._id], type: e.target.value } }))}>
+                          <option value="fixed">Fixed Amount (₹)</option>
+                          <option value="percentage">Percentage (%)</option>
+                        </select>
+                        <input 
+                          type="number" 
+                          className={inputCls} 
+                          placeholder={discount.type === 'percentage' ? 'e.g. 10' : 'e.g. 500'}
+                          value={discount.value || ''}
+                          onChange={(e) => setRoomDiscounts((prev) => ({ ...prev, [r._id]: { ...prev[r._id], value: e.target.value } }))} 
+                        />
+                      </div>
+                      <p className="text-xs text-[#8B7D3A] mt-1">💰 Apply discount on this room (before taxes)</p>
+                    </div>
+
                     {/* Extra bed checkbox */}
                     <label className="flex items-center gap-2 text-sm text-[#5a4228] cursor-pointer mb-2">
                       <input type="checkbox" checked={!!eb.enabled}
@@ -524,7 +672,113 @@ export default function AddBookingForm() {
               </label>
             </div>
           </div>
+
+          {/* Photo Uploads */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className={labelCls}>Guest Photo</label>
+              {guestPhoto && (
+                <div className="mb-2 relative inline-block">
+                  <img src={URL.createObjectURL(guestPhoto)} alt="Guest" className="w-24 h-24 object-cover rounded border border-[#E8D5A0]" />
+                  <button type="button" onClick={() => setGuestPhoto(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <input 
+                    type="file" 
+                    accept="image/jpeg,image/jpg,image/png" 
+                    onChange={(e) => e.target.files[0] && setGuestPhoto(e.target.files[0])}
+                    className="hidden" 
+                    id="guestPhoto" 
+                  />
+                  <label 
+                    htmlFor="guestPhoto" 
+                    className="flex items-center gap-2 border border-[#C9A84C] rounded px-3 py-2 text-sm w-full cursor-pointer hover:bg-[#FDF6E3] transition">
+                    <Upload size={16} className="text-[#9C7C38]" />
+                    <span className="text-[#5a4228] truncate">{guestPhoto ? guestPhoto.name : 'Choose photo'}</span>
+                  </label>
+                </div>
+                <button type="button" onClick={startCamera} className="bg-[#9C7C38] hover:bg-[#7A5F28] text-white px-3 py-2 rounded transition-colors">
+                  <Camera size={16} />
+                </button>
+              </div>
+              <p className="text-xs text-[#8B7D3A] mt-1">📷 Upload or capture photo (Max 5MB)</p>
+            </div>
+            <div>
+              <label className={labelCls}>ID Proof Photos (Multiple)</label>
+              {idProofPhotos.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {idProofPhotos.map((file, i) => (
+                    <div key={i} className="relative inline-block">
+                      {file.type === 'application/pdf' ? (
+                        <div className="w-20 h-20 border border-[#E8D5A0] rounded flex items-center justify-center bg-gray-50">
+                          <span className="text-xs text-[#9C7C38]">📄 PDF</span>
+                        </div>
+                      ) : (
+                        <img src={URL.createObjectURL(file)} alt={`ID ${i+1}`} className="w-20 h-20 object-cover rounded border border-[#E8D5A0]" />
+                      )}
+                      <button type="button" onClick={() => removeIdProofPhoto(i)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600">
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="relative">
+                <input 
+                  type="file" 
+                  accept="image/jpeg,image/jpg,image/png,application/pdf" 
+                  multiple
+                  onChange={(e) => setIdProofPhotos([...idProofPhotos, ...Array.from(e.target.files)])}
+                  className="hidden" 
+                  id="idProofPhotos" 
+                />
+                <label 
+                  htmlFor="idProofPhotos" 
+                  className="flex items-center gap-2 border border-[#C9A84C] rounded px-3 py-2 text-sm w-full cursor-pointer hover:bg-[#FDF6E3] transition">
+                  <Upload size={16} className="text-[#9C7C38]" />
+                  <span className="text-[#5a4228]">Choose ID proof photos ({idProofPhotos.length} selected)</span>
+                </label>
+              </div>
+              <p className="text-xs text-[#8B7D3A] mt-1">📄 JPEG, JPG, PNG, PDF (Max 5MB each, up to 10 files)</p>
+            </div>
+          </div>
         </div>
+
+        {/* Camera Modal */}
+        {showCamera && (
+          <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl p-6 max-w-2xl w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-[#3d2e10]">Capture Guest Photo</h3>
+                <button type="button" onClick={stopCamera} className="text-[#9C7C38] hover:text-[#7A5F28]">
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="relative bg-black rounded-lg overflow-hidden mb-4" style={{ minHeight: '400px' }}>
+                <video 
+                  ref={videoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted
+                  className="w-full h-full object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
+                />
+                <canvas ref={canvasRef} className="hidden" />
+              </div>
+              <div className="flex gap-3 justify-center">
+                <button type="button" onClick={stopCamera} className={btnOutline}>Cancel</button>
+                <button type="button" onClick={capturePhoto} className={btnPrimary}>
+                  <Camera size={16} className="inline mr-2" />
+                  Capture Photo
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stay Information */}
         <div className={sectionCls}>
@@ -578,12 +832,43 @@ export default function AddBookingForm() {
             <div className="border border-[#e0d5a0] rounded-lg overflow-hidden text-sm">
               <table className="w-full">
                 <tbody>
-                  {selectedRooms.map((r) => (
-                    <tr key={r._id} className="border-b border-[#f0e8c8]">
-                      <td className="px-4 py-2 text-[#5a4e28]">Room {r.roomNumber} ({days}d):</td>
-                      <td className="px-4 py-2 text-right font-medium text-[#3d3416]">₹{(r.price * days).toFixed(2)}</td>
-                    </tr>
-                  ))}
+                  {selectedRooms.map((r) => {
+                    const price = customPrices[r._id] !== undefined ? Number(customPrices[r._id]) : r.price;
+                    const roomSubtotal = price * days;
+                    const isCustom = customPrices[r._id] !== undefined;
+                    
+                    // Calculate discount
+                    const discount = roomDiscounts[r._id];
+                    let discountAmount = 0;
+                    if (discount?.value) {
+                      if (discount.type === 'percentage') {
+                        discountAmount = (roomSubtotal * Number(discount.value)) / 100;
+                      } else {
+                        discountAmount = Number(discount.value);
+                      }
+                    }
+                    
+                    const roomTotal = roomSubtotal - discountAmount;
+                    
+                    return (
+                      <Fragment key={r._id}>
+                        <tr className="border-b border-[#f0e8c8]">
+                          <td className="px-4 py-2 text-[#5a4e28]">
+                            Room {r.roomNumber} ({days}d){isCustom && <span className="text-xs text-orange-600 ml-1">(Custom)</span>}:
+                          </td>
+                          <td className="px-4 py-2 text-right font-medium text-[#3d3416]">₹{roomSubtotal.toFixed(2)}</td>
+                        </tr>
+                        {discountAmount > 0 && (
+                          <tr className="border-b border-[#f0e8c8]">
+                            <td className="px-4 py-2 text-[#5a4e28] pl-8">
+                              Discount ({discount.type === 'percentage' ? `${discount.value}%` : `₹${discount.value}`}):
+                            </td>
+                            <td className="px-4 py-2 text-right text-green-600">-₹{discountAmount.toFixed(2)}</td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                   {selectedRooms.map((r) => {
                     const cost = calcExtraBedCost(r._id);
                     const eb = extraBeds[r._id];
@@ -618,6 +903,20 @@ export default function AddBookingForm() {
                     <td className="px-4 py-2 font-bold text-[#3d3416]">Total:</td>
                     <td className="px-4 py-2 text-right font-bold text-[#8B7D3A]">₹{totalWithTax.toFixed(2)}</td>
                   </tr>
+                  {advancePayments.filter(ap => ap.amount && ap.method && ap.date).map((ap, i) => (
+                    <tr key={`adv-${i}`} className="border-t border-[#f0e8c8]">
+                      <td className="px-4 py-2 text-[#5a4e28]">Advance ({ap.method}):</td>
+                      <td className="px-4 py-2 text-right text-blue-600">-₹{Number(ap.amount).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {advancePayments.filter(ap => ap.amount && ap.method && ap.date).length > 0 && (
+                    <tr className="bg-[#fdf8ec] border-t-2 border-[#e0d5a0]">
+                      <td className="px-4 py-2 font-bold text-[#3d3416]">Balance Due:</td>
+                      <td className="px-4 py-2 text-right font-bold text-red-600">
+                        ₹{(totalWithTax - advancePayments.filter(ap => ap.amount && ap.method && ap.date).reduce((sum, ap) => sum + Number(ap.amount), 0)).toFixed(2)}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
