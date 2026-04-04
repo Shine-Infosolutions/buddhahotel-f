@@ -23,17 +23,20 @@ export default function Bookings() {
     setSearch(val);
     setPage(1);
     const q = val.toLowerCase();
-    setFiltered(bookings.filter((b) =>
-      b.guest?.name?.toLowerCase().includes(q) ||
-      b.room?.roomNumber?.toString().includes(q) ||
-      b.grcNumber?.toLowerCase().includes(q)
-    ));
+    setFiltered(bookings.filter((b) => {
+      const roomNumbers = b.rooms?.length > 0 
+        ? b.rooms.map(r => r.roomNumber).join(', ')
+        : b.room?.roomNumber?.toString() || '';
+      return b.guest?.name?.toLowerCase().includes(q) ||
+        roomNumbers.includes(q) ||
+        b.grcNumber?.toLowerCase().includes(q);
+    }));
   };
 
   const handleExtraBedOnly = () => {
     setPage(1);
     setSearch('');
-    setFiltered(bookings.filter((b) => b.extraBedChargePerDay > 0));
+    setFiltered(bookings.filter((b) => b.extraBeds?.length > 0));
   };
 
   const handleDelete = async (id) => {
@@ -110,9 +113,37 @@ export default function Bookings() {
                   <td className="px-3 py-3 whitespace-nowrap text-xs font-semibold" style={{ color: '#9C7C38' }}>{b.grcNumber || '—'}</td>
                   <td className="px-3 py-3 whitespace-nowrap text-xs" style={{ color: '#9C7C38' }}>{b.invoiceNumber || '—'}</td>
                   <td className="px-3 py-3 whitespace-nowrap text-sm text-[#3d2e10]">{b.guest?.name || '—'}</td>
-                  <td className="px-3 py-3 whitespace-nowrap text-sm text-[#3d2e10]">{b.room?.roomNumber || '—'}</td>
-                  <td className="px-3 py-3 whitespace-nowrap text-xs text-[#3d2e10] uppercase">{b.room?.category?.name || '—'}</td>
-                  <td className="px-3 py-3 whitespace-nowrap text-xs text-[#3d2e10]">{b.extraBedChargePerDay > 0 ? `₹${b.extraBedChargePerDay}` : '-'}</td>
+                  <td className="px-3 py-3 text-sm text-[#3d2e10]">
+                    {b.rooms?.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {b.rooms.map((room, idx) => (
+                          <span key={room._id} className="inline-block bg-[#FDF6E3] border border-[#E8D5A0] text-[#9C7C38] px-2 py-0.5 rounded text-xs font-medium">
+                            {room.roomNumber}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      b.room?.roomNumber || '—'
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-xs text-[#3d2e10] uppercase">
+                    {b.rooms?.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {[...new Set(b.rooms.map(r => r.category?.name).filter(Boolean))].map((cat, idx) => (
+                          <span key={idx} className="inline-block">{cat}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      b.room?.category?.name || '—'
+                    )}
+                  </td>
+                  <td className="px-3 py-3 whitespace-nowrap text-xs text-[#3d2e10]">
+                    {b.extraBeds?.length > 0 ? (
+                      <span className="text-green-600 font-medium">✓ Yes</span>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
                   <td className="px-3 py-3 whitespace-nowrap text-xs text-[#3d2e10]">{b.checkIn?.slice(0, 10)}</td>
                   <td className="px-3 py-3 whitespace-nowrap text-xs text-[#3d2e10]">{b.checkOut?.slice(0, 10)}</td>
 
