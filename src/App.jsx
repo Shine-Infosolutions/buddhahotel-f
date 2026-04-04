@@ -15,6 +15,7 @@ import AddBookingForm from './pages/Bookings/AddBookingForm';
 import EditBookingForm from './pages/Bookings/EditBookingForm';
 import Billing from './pages/Billing/Billing';
 import Staff from './pages/Staff/Staff';
+import InvoicePage from './pages/Bookings/InvoicePage';
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
               <Route path="/bookings" element={<Bookings />} />
               <Route path="/bookings/add" element={<AddBookingForm />} />
               <Route path="/bookings/edit/:id" element={<EditBookingForm />} />
+              <Route path="/invoice" element={<InvoicePage />} />
               <Route path="/billing" element={<Billing />} />
               <Route path="/staff" element={<Staff />} />
             </Route>
