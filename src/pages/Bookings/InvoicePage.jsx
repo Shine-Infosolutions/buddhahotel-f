@@ -143,7 +143,7 @@ export default function InvoicePage() {
                     {showPax && (
                       <>
                         <p className="font-bold">PAX</p>
-                        <p>: {(booking.numberOfRooms || 1)} room(s)</p>
+                        <p>: Adults: {booking.adults || 1}, Children: {booking.children || 0}</p>
                       </>
                     )}
                     <p className="font-bold">CheckIn Date & Time</p>
@@ -173,9 +173,9 @@ export default function InvoicePage() {
                         <td className="p-1 border border-black">{item.date}</td>
                         <td className="p-1 border border-black">{item.particulars}</td>
                         <td className="p-1 border border-black text-right">₹{(item.roomRate || 0).toFixed(2)}</td>
-                        <td className="p-1 border border-black text-right">₹{(item.declaredRate || 0).toFixed(2)}</td>
-                        <td className="p-1 border border-black text-center">{item.hsn}</td>
-                        <td className="p-1 border border-black text-right font-bold">₹{(item.amount || 0).toFixed(2)}</td>
+                        <td className="p-1 border border-black text-right">{item.declaredRate != null ? `₹${item.declaredRate.toFixed(2)}` : ''}</td>
+                        <td className="p-1 border border-black text-center">{item.hsn || ''}</td>
+                        <td className="p-1 border border-black text-right font-bold">{item.amount != null ? `₹${item.amount.toFixed(2)}` : ''}</td>
                       </tr>
                     ))}
                     <tr className="border border-black bg-gray-100">
@@ -223,10 +223,10 @@ export default function InvoicePage() {
                       {[
                         ['Room Amount:', `₹${calcRoomAmt().toFixed(2)}`],
                         ...(calcExtraBedAmt() > 0 ? [['Extra Bed Charge:', `₹${calcExtraBedAmt().toFixed(2)}`]] : []),
-                        ['Room After Discount:', `₹${(taxable() - (inv.summary?.discount || 0)).toFixed(2)}`],
                         ['Total Taxable Amount:', `₹${taxable().toFixed(2)}`],
                         [`SGST (${inv.taxes?.sgstRate || 0}%):`, `₹${sgst().toFixed(2)}`],
                         [`CGST (${inv.taxes?.cgstRate || 0}%):`, `₹${cgst().toFixed(2)}`],
+                        ...(inv.summary?.discount > 0 ? [['Discount:', `-₹${inv.summary.discount.toFixed(2)}`]] : []),
                         ['Round Off:', `${roundOff() >= 0 ? '+' : ''}${roundOff().toFixed(2)}`],
                       ].map(([label, val]) => (
                         <tr key={label}>
@@ -236,7 +236,7 @@ export default function InvoicePage() {
                       ))}
                       <tr className="bg-gray-200">
                         <td className="p-0.5 text-right font-bold">NET AMOUNT:</td>
-                        <td className="p-0.5 border-l border-black text-right font-bold">₹{Math.round(netAmt())}</td>
+                        <td className="p-0.5 border-l border-black text-right font-bold">₹{Math.round(netAmt() - (inv.summary?.discount || 0))}</td>
                       </tr>
                       {totalAdv() > 0 && (
                         <tr>

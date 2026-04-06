@@ -11,9 +11,14 @@ const emptyGuest = {
   anniversaryDate: '', companyDetails: '', idType: '', idNumber: '', isVIP: false,
 };
 
+const emptyAdditionalGuest = {
+  salutation: 'Mr.', name: '', age: '', gender: '', phone: '', email: '', 
+  idType: '', idNumber: '',
+};
+
 const emptyBooking = {
   checkIn: '', checkOut: '', checkInTime: '12:00', checkOutTime: '12:00',
-  numberOfRooms: 1, arrivalFrom: '', purposeOfVisit: '', extraBedChargePerDay: 0,
+  numberOfRooms: 1, adults: 1, children: 0, arrivalFrom: '', purposeOfVisit: '', extraBedChargePerDay: 0,
   remarks: '', status: 'booked', cgstRate: 2.5, sgstRate: 2.5, discount: 0,
   paymentMode: '', paymentStatus: 'pending', billingInstruction: '',
 };
@@ -49,6 +54,7 @@ export default function AddBookingForm() {
   const [nameSearch, setNameSearch] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [additionalGuests, setAdditionalGuests] = useState([]);
 
   useEffect(() => {
     previewNumbers(new Date().toISOString().slice(0, 10)).then((r) => setPreview(r.data)).catch(() => {});
@@ -176,6 +182,13 @@ export default function AddBookingForm() {
       if (idProofPhotos.length > 0) guestData.idProofPhotos = idProofPhotos;
       const guestRes = await createGuest(guestData);
       
+      // Create additional guests
+      const additionalGuestIds = [];
+      for (const addGuest of additionalGuests) {
+        const addGuestRes = await createGuest(addGuest);
+        additionalGuestIds.push(addGuestRes.data._id);
+      }
+      
       // Filter and format advance payments - only include valid entries
       const validAdvancePayments = advancePayments
         .filter(ap => ap.amount && ap.method && ap.date)
@@ -194,6 +207,7 @@ export default function AddBookingForm() {
           .filter(([, disc]) => disc?.value)
           .map(([roomId, disc]) => ({ room: roomId, discountType: disc.type || 'fixed', discountValue: Number(disc.value) })),
         guest: guestRes.data._id,
+        additionalGuests: additionalGuestIds,
         taxableAmount,
         totalAmount: totalWithTax,
         advancePayments: validAdvancePayments,
@@ -214,9 +228,14 @@ export default function AddBookingForm() {
     if (!grcSearch.trim()) return;
     setSearchLoading(true);
     try {
-      const res = await getGuestByGRC(grcSearch.trim());
+      // If user entered only numbers, prepend the year prefix
+      const fullGRC = grcSearch.startsWith('GRC') 
+        ? grcSearch.trim() 
+        : `GRC${new Date().getFullYear() % 100}${grcSearch.padStart(4, '0')}`;
+      const res = await getGuestByGRC(fullGRC);
       const { _id, __v, createdAt, updatedAt, ...guestData } = res.data;
       setGuest({ ...emptyGuest, ...guestData });
+      setGrcSearch('');
       toast.success('Guest loaded from GRC');
     } catch {
       toast.error('GRC not found');
@@ -263,6 +282,7 @@ export default function AddBookingForm() {
     setGrcSearch('');
     setNameSearch('');
     setSearchResults([]);
+    setAdditionalGuests([]);
   };
 
   const startCamera = async () => {
@@ -356,10 +376,32 @@ export default function AddBookingForm() {
           {/* Search by GRC */}
           <div className="mb-4">
             <label className={labelCls}>Search by GRC (Returning Customer)</label>
-            <input className={inputCls} placeholder="Enter a previous GRC number" value={grcSearch}
-              onChange={(e) => setGrcSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleGRCSearch())} />
-            <p className="text-xs text-[#8B7D3A] mt-1">💡 Enter a previous GRC number to auto-fill customer details for a new booking</p>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5a4228] font-medium pointer-events-none">
+                GRC{new Date().getFullYear() % 100}
+              </span>
+              <input 
+                className={`${inputCls} pl-16`} 
+                placeholder="0001" 
+                value={grcSearch}
+                maxLength={4}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '');
+                  setGrcSearch(value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (grcSearch) {
+                      const fullGRC = `GRC${new Date().getFullYear() % 100}${grcSearch.padStart(4, '0')}`;
+                      setGrcSearch(fullGRC);
+                      handleGRCSearch();
+                    }
+                  }
+                }} 
+              />
+            </div>
+            <p className="text-xs text-[#8B7D3A] mt-1">💡 Enter 4-digit GRC number (e.g., 0001, 0023) to search for returning customer</p>
           </div>
 
           {/* Search by Name/Mobile */}
@@ -492,39 +534,73 @@ export default function AddBookingForm() {
                         className="text-red-400 hover:text-red-600 text-xs font-bold">&times; Remove</button>
                     </div>
                     
-                    {/* Custom Price */}
+                    {/* Custom Price Checkbox */}
                     <div className="mb-2">
-                      <label className={labelCls}>Custom Price per Night (₹) - Optional</label>
-                      <input 
-                        type="number" 
-                        className={inputCls} 
-                        placeholder={`Default: ₹${r.price}`}
-                        value={customPrice || ''}
-                        onChange={(e) => setCustomPrices((prev) => ({ ...prev, [r._id]: e.target.value }))} 
-                      />
-                      <p className="text-xs text-[#8B7D3A] mt-1">💡 Leave empty to use default price. Enter custom price for special rates.</p>
+                      <label className="flex items-center gap-2 text-sm text-[#5a4228] cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          checked={customPrices[r._id] !== undefined}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setCustomPrices((prev) => ({ ...prev, [r._id]: '' }));
+                            } else {
+                              setCustomPrices((prev) => { const n = { ...prev }; delete n[r._id]; return n; });
+                            }
+                          }}
+                        />
+                        Set Custom Price
+                      </label>
+                      {customPrices[r._id] !== undefined && (
+                        <div className="mt-2 pl-6">
+                          <input 
+                            type="number" 
+                            className={inputCls} 
+                            placeholder={`Default: ₹${r.price}`}
+                            value={customPrices[r._id] || ''}
+                            onChange={(e) => setCustomPrices((prev) => ({ ...prev, [r._id]: e.target.value }))} 
+                          />
+                          <p className="text-xs text-[#8B7D3A] mt-1">💡 Enter custom price for special rates</p>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Room Discount */}
+                    {/* Room Discount Checkbox */}
                     <div className="mb-2">
-                      <label className={labelCls}>Room Discount - Optional</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <select 
-                          className={inputCls}
-                          value={discount.type || 'fixed'}
-                          onChange={(e) => setRoomDiscounts((prev) => ({ ...prev, [r._id]: { ...prev[r._id], type: e.target.value } }))}>
-                          <option value="fixed">Fixed Amount (₹)</option>
-                          <option value="percentage">Percentage (%)</option>
-                        </select>
+                      <label className="flex items-center gap-2 text-sm text-[#5a4228] cursor-pointer">
                         <input 
-                          type="number" 
-                          className={inputCls} 
-                          placeholder={discount.type === 'percentage' ? 'e.g. 10' : 'e.g. 500'}
-                          value={discount.value || ''}
-                          onChange={(e) => setRoomDiscounts((prev) => ({ ...prev, [r._id]: { ...prev[r._id], value: e.target.value } }))} 
+                          type="checkbox" 
+                          checked={roomDiscounts[r._id] !== undefined}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setRoomDiscounts((prev) => ({ ...prev, [r._id]: { type: 'fixed', value: '' } }));
+                            } else {
+                              setRoomDiscounts((prev) => { const n = { ...prev }; delete n[r._id]; return n; });
+                            }
+                          }}
                         />
-                      </div>
-                      <p className="text-xs text-[#8B7D3A] mt-1">💰 Apply discount on this room (before taxes)</p>
+                        Apply Room Discount
+                      </label>
+                      {roomDiscounts[r._id] !== undefined && (
+                        <div className="mt-2 pl-6">
+                          <div className="grid grid-cols-2 gap-2">
+                            <select 
+                              className={inputCls}
+                              value={discount.type || 'fixed'}
+                              onChange={(e) => setRoomDiscounts((prev) => ({ ...prev, [r._id]: { ...prev[r._id], type: e.target.value } }))}>
+                              <option value="fixed">Fixed Amount (₹)</option>
+                              <option value="percentage">Percentage (%)</option>
+                            </select>
+                            <input 
+                              type="number" 
+                              className={inputCls} 
+                              placeholder={discount.type === 'percentage' ? 'e.g. 10' : 'e.g. 500'}
+                              value={discount.value || ''}
+                              onChange={(e) => setRoomDiscounts((prev) => ({ ...prev, [r._id]: { ...prev[r._id], value: e.target.value } }))} 
+                            />
+                          </div>
+                          <p className="text-xs text-[#8B7D3A] mt-1">💰 Discount applied before taxes</p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Extra bed checkbox */}
@@ -780,6 +856,123 @@ export default function AddBookingForm() {
           </div>
         )}
 
+        {/* Additional Guests */}
+        <div className={sectionCls}>
+          {sectionTitle(<User size={18} />, 'Additional Guests (Optional)')}
+          <p className="text-sm text-[#5a4228] mb-4">Add other guests staying in this booking (family members, companions, etc.)</p>
+          
+          {additionalGuests.map((addGuest, idx) => (
+            <div key={idx} className="border border-[#E8D5A0] rounded-lg p-4 mb-4 bg-[#FFFEF9]">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold text-[#3d2e10]">Guest #{idx + 1}</h4>
+                <button type="button" onClick={() => setAdditionalGuests(additionalGuests.filter((_, i) => i !== idx))}
+                  className="text-red-400 hover:text-red-600 text-xs font-bold">&times; Remove</button>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3">
+                <div>
+                  <label className={labelCls}>Salutation</label>
+                  <select className={inputCls} value={addGuest.salutation} 
+                    onChange={(e) => {
+                      const updated = [...additionalGuests];
+                      updated[idx].salutation = e.target.value;
+                      setAdditionalGuests(updated);
+                    }}>
+                    {['Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Prof.'].map((s) => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className={labelCls}>Name <span className="text-red-500">*</span></label>
+                  <input className={inputCls} value={addGuest.name}
+                    onChange={(e) => {
+                      const updated = [...additionalGuests];
+                      updated[idx].name = e.target.value;
+                      setAdditionalGuests(updated);
+                    }} required />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3">
+                <div>
+                  <label className={labelCls}>Age</label>
+                  <input type="number" className={inputCls} value={addGuest.age}
+                    onChange={(e) => {
+                      const updated = [...additionalGuests];
+                      updated[idx].age = e.target.value;
+                      setAdditionalGuests(updated);
+                    }} />
+                </div>
+                <div>
+                  <label className={labelCls}>Gender</label>
+                  <select className={inputCls} value={addGuest.gender}
+                    onChange={(e) => {
+                      const updated = [...additionalGuests];
+                      updated[idx].gender = e.target.value;
+                      setAdditionalGuests(updated);
+                    }}>
+                    <option value="">Select Gender</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Mobile No <span className="text-red-500">*</span></label>
+                  <input className={inputCls} value={addGuest.phone}
+                    onChange={(e) => {
+                      const updated = [...additionalGuests];
+                      updated[idx].phone = e.target.value;
+                      setAdditionalGuests(updated);
+                    }} required />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
+                <div>
+                  <label className={labelCls}>Email</label>
+                  <input type="email" className={inputCls} value={addGuest.email}
+                    onChange={(e) => {
+                      const updated = [...additionalGuests];
+                      updated[idx].email = e.target.value;
+                      setAdditionalGuests(updated);
+                    }} />
+                </div>
+                <div>
+                  <label className={labelCls}>ID Type</label>
+                  <select className={inputCls} value={addGuest.idType}
+                    onChange={(e) => {
+                      const updated = [...additionalGuests];
+                      updated[idx].idType = e.target.value;
+                      setAdditionalGuests(updated);
+                    }}>
+                    <option value="">Select ID Proof Type</option>
+                    {['passport', 'aadhar', 'driving_license', 'voter_id', 'other'].map((t) => (
+                      <option key={t} value={t}>{t.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              
+              <div>
+                <label className={labelCls}>ID Proof Number</label>
+                <input className={inputCls} disabled={!addGuest.idType} value={addGuest.idNumber}
+                  onChange={(e) => {
+                    const updated = [...additionalGuests];
+                    updated[idx].idNumber = e.target.value;
+                    setAdditionalGuests(updated);
+                  }} />
+              </div>
+            </div>
+          ))}
+          
+          <button type="button" 
+            onClick={() => setAdditionalGuests([...additionalGuests, { ...emptyAdditionalGuest }])}
+            className="flex items-center gap-2 px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors">
+            <User size={16} />
+            Add Another Guest
+          </button>
+        </div>
+
         {/* Stay Information */}
         <div className={sectionCls}>
           {sectionTitle(<Info size={18} />, 'Stay Information')}
@@ -791,6 +984,16 @@ export default function AddBookingForm() {
             <div>
               <label className={labelCls}>Check-out Time</label>
               <input type="time" className={inputCls} value={booking.checkOutTime} onChange={(e) => setBooking({ ...booking, checkOutTime: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className={labelCls}>Number of Adults <span className="text-red-500">*</span></label>
+              <input type="number" min="1" className={inputCls} value={booking.adults} onChange={(e) => setBooking({ ...booking, adults: Number(e.target.value) })} required />
+            </div>
+            <div>
+              <label className={labelCls}>Number of Children</label>
+              <input type="number" min="0" className={inputCls} value={booking.children} onChange={(e) => setBooking({ ...booking, children: Number(e.target.value) })} />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">

@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Fragment } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getBooking, updateBooking, checkAvailability } from '../../api/bookings';
-import { updateGuest } from '../../api/guests';
-import { BedDouble, User, Info, CreditCard, Search, CheckCircle2, Upload, Camera, X } from 'lucide-react';
+import { updateGuest, createGuest } from '../../api/guests';
+import { BedDouble, User, Info, CreditCard, Search, CheckCircle2, Upload, Camera, X, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const sectionTitle = (icon, title) => (
@@ -20,7 +20,7 @@ export default function EditBookingForm() {
   const [checking, setChecking] = useState(false);
   const [availabilityResult, setAvailabilityResult] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [selectedRooms, setSelectedRooms] = useState([]);
   const [showCompany, setShowCompany] = useState(false);
   const [guestPhoto, setGuestPhoto] = useState(null);
   const [idProofPhotos, setIdProofPhotos] = useState([]);
@@ -32,12 +32,14 @@ export default function EditBookingForm() {
   const streamRef = useRef(null);
   const [advancePayments, setAdvancePayments] = useState([]);
   const [loading, setLoading] = useState(false);
-  // extraBed for the single room: { enabled, chargePerDay, from, to }
-  const [extraBed, setExtraBed] = useState({ enabled: false, chargePerDay: '', from: '', to: '' });
-  // Custom price for the room
-  const [customPrice, setCustomPrice] = useState('');
-  // Room discount: { type, value }
-  const [roomDiscount, setRoomDiscount] = useState({ type: 'fixed', value: '' });
+  // extraBeds for multiple rooms: { [roomId]: { enabled, chargePerDay, from, to } }
+  const [extraBeds, setExtraBeds] = useState({});
+  // Custom prices for multiple rooms: { [roomId]: customPrice }
+  const [customPrices, setCustomPrices] = useState({});
+  // Room discounts for multiple rooms: { [roomId]: { type, value } }
+  const [roomDiscounts, setRoomDiscounts] = useState({});
+  const [additionalGuests, setAdditionalGuests] = useState([]);
+  const [existingAdditionalGuests, setExistingAdditionalGuests] = useState([]);
 
   const loadBookingData = () => {
     getBooking(id).then((r) => {
@@ -47,21 +49,49 @@ export default function EditBookingForm() {
       setExistingGuestPhoto(b.guest?.guestPhoto || '');
       setExistingIdProofPhotos(b.guest?.idProofPhotos || []);
       setAdvancePayments(b.advancePayments || []);
-      if (b.room) setSelectedRoom(b.room);
-      // Load existing extra bed
-      const eb = b.extraBeds?.[0];
-      if (eb) setExtraBed({ enabled: true, chargePerDay: eb.chargePerDay || '', from: eb.from?.slice(0, 10) || '', to: eb.to?.slice(0, 10) || '' });
-      else setExtraBed({ enabled: false, chargePerDay: '', from: '', to: '' });
-      // Load custom price if exists
-      const cp = b.customPrices?.find((p) => p.room === b.room?._id || p.room === b.room);
-      setCustomPrice(cp?.price || '');
-      // Load room discount if exists
-      const rd = b.roomDiscounts?.find((d) => d.room === b.room?._id || d.room === b.room);
-      setRoomDiscount({ type: rd?.discountType || 'fixed', value: rd?.discountValue || '' });
+      setExistingAdditionalGuests(b.additionalGuests || []);
+      setAdditionalGuests([]);
+      
+      // Load rooms (support both single and multiple)
+      const rooms = b.rooms?.length ? b.rooms : (b.room ? [b.room] : []);
+      setSelectedRooms(rooms);
+      
+      // Load extra beds for all rooms
+      const extraBedData = {};
+      b.extraBeds?.forEach((eb) => {
+        const roomId = eb.room?._id || eb.room;
+        extraBedData[roomId] = {
+          enabled: true,
+          chargePerDay: eb.chargePerDay || '',
+          from: eb.from?.slice(0, 10) || '',
+          to: eb.to?.slice(0, 10) || ''
+        };
+      });
+      setExtraBeds(extraBedData);
+      
+      // Load custom prices for all rooms
+      const customPriceData = {};
+      b.customPrices?.forEach((cp) => {
+        const roomId = cp.room?._id || cp.room;
+        customPriceData[roomId] = cp.price;
+      });
+      setCustomPrices(customPriceData);
+      
+      // Load room discounts for all rooms
+      const roomDiscountData = {};
+      b.roomDiscounts?.forEach((rd) => {
+        const roomId = rd.room?._id || rd.room;
+        roomDiscountData[roomId] = {
+          type: rd.discountType || 'fixed',
+          value: rd.discountValue || ''
+        };
+      });
+      setRoomDiscounts(roomDiscountData);
+      
       setBooking({
-        room: b.room?._id, checkIn: b.checkIn?.slice(0, 10), checkOut: b.checkOut?.slice(0, 10),
+        checkIn: b.checkIn?.slice(0, 10), checkOut: b.checkOut?.slice(0, 10),
         checkInTime: b.checkInTime || '12:00', checkOutTime: b.checkOutTime || '12:00',
-        numberOfRooms: b.numberOfRooms || 1, arrivalFrom: b.arrivalFrom || '',
+        numberOfRooms: rooms.length, arrivalFrom: b.arrivalFrom || '',
         purposeOfVisit: b.purposeOfVisit || '',
         remarks: b.remarks || '', status: b.status, cgstRate: b.cgstRate ?? 2.5,
         sgstRate: b.sgstRate ?? 2.5, discount: b.discount || 0,
@@ -95,31 +125,53 @@ export default function EditBookingForm() {
     }
   };
 
+  const toggleRoom = (room) => {
+    setSelectedRooms((prev) => {
+      const exists = prev.find((r) => r._id === room._id);
+      if (exists) {
+        setExtraBeds((eb) => { const n = { ...eb }; delete n[room._id]; return n; });
+        setCustomPrices((cp) => { const n = { ...cp }; delete n[room._id]; return n; });
+        setRoomDiscounts((rd) => { const n = { ...rd }; delete n[room._id]; return n; });
+        return prev.filter((r) => r._id !== room._id);
+      }
+      return [...prev, room];
+    });
+  };
+
+  const updateExtraBed = (roomId, field, value) => {
+    setExtraBeds((prev) => ({ ...prev, [roomId]: { ...prev[roomId], [field]: value } }));
+  };
+
+  const calcExtraBedCost = (roomId) => {
+    const eb = extraBeds[roomId];
+    if (!eb?.enabled || !eb.chargePerDay || !eb.from || !eb.to) return 0;
+    const ebDays = Math.max(1, Math.ceil((new Date(eb.to) - new Date(eb.from)) / (1000 * 60 * 60 * 24)));
+    return Number(eb.chargePerDay) * ebDays;
+  };
+
   const days = booking?.checkIn && booking?.checkOut
     ? Math.max(1, Math.ceil((new Date(booking.checkOut) - new Date(booking.checkIn)) / (1000 * 60 * 60 * 24)))
     : 0;
-  const roomPrice = customPrice ? Number(customPrice) : (selectedRoom?.price || 0);
-  const roomSubtotal = roomPrice * days;
-  
-  // Calculate room discount
-  let roomDiscountAmount = 0;
-  if (roomDiscount?.value) {
-    if (roomDiscount.type === 'percentage') {
-      roomDiscountAmount = (roomSubtotal * Number(roomDiscount.value)) / 100;
-    } else {
-      roomDiscountAmount = Number(roomDiscount.value);
+
+  const totalRoomCost = selectedRooms.reduce((sum, r) => {
+    const price = customPrices[r._id] !== undefined ? Number(customPrices[r._id]) : r.price;
+    const roomSubtotal = price * days;
+    
+    const discount = roomDiscounts[r._id];
+    let discountAmount = 0;
+    if (discount?.value) {
+      if (discount.type === 'percentage') {
+        discountAmount = (roomSubtotal * Number(discount.value)) / 100;
+      } else {
+        discountAmount = Number(discount.value);
+      }
     }
-  }
+    
+    return sum + roomSubtotal - discountAmount;
+  }, 0);
   
-  const roomCost = roomSubtotal - roomDiscountAmount;
-
-  const extraBedCost = (() => {
-    if (!extraBed.enabled || !extraBed.chargePerDay || !extraBed.from || !extraBed.to) return 0;
-    const ebDays = Math.max(1, Math.ceil((new Date(extraBed.to) - new Date(extraBed.from)) / (1000 * 60 * 60 * 24)));
-    return Number(extraBed.chargePerDay) * ebDays;
-  })();
-
-  const taxableAmount = roomCost + extraBedCost;
+  const totalExtraBedCost = selectedRooms.reduce((sum, r) => sum + calcExtraBedCost(r._id), 0);
+  const taxableAmount = totalRoomCost + totalExtraBedCost;
   const cgst = (taxableAmount * (booking?.cgstRate || 0)) / 100;
   const sgst = (taxableAmount * (booking?.sgstRate || 0)) / 100;
   const totalWithTax = taxableAmount + cgst + sgst - (booking?.discount || 0);
@@ -211,6 +263,7 @@ export default function EditBookingForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (selectedRooms.length === 0) return toast.error('Please select at least one room');
     setLoading(true);
     try {
       const { _id, __v, createdAt, updatedAt, idProofPhotos: _existingPhotos, guestPhoto: _existingPhoto, ...guestData } = guest;
@@ -218,11 +271,31 @@ export default function EditBookingForm() {
       guestData.idProofPhotos = idProofPhotos;
       guestData.existingIdProofPhotos = existingIdProofPhotos;
       await updateGuest(_id, guestData);
-      const extraBeds = extraBed.enabled && extraBed.chargePerDay && extraBed.from && extraBed.to
-        ? [{ room: booking.room, chargePerDay: Number(extraBed.chargePerDay), from: extraBed.from, to: extraBed.to }]
-        : [];
-      const customPrices = customPrice ? [{ room: booking.room, price: Number(customPrice) }] : [];
-      const roomDiscounts = roomDiscount?.value ? [{ room: booking.room, discountType: roomDiscount.type, discountValue: Number(roomDiscount.value) }] : [];
+      
+      // Create new additional guests
+      const newAdditionalGuestIds = [];
+      for (const addGuest of additionalGuests) {
+        const addGuestRes = await createGuest(addGuest);
+        newAdditionalGuestIds.push(addGuestRes.data._id);
+      }
+      
+      // Combine existing and new additional guest IDs
+      const allAdditionalGuestIds = [
+        ...existingAdditionalGuests.map(g => g._id || g),
+        ...newAdditionalGuestIds
+      ];
+      
+      const extraBedsArray = Object.entries(extraBeds)
+        .filter(([, eb]) => eb?.enabled && eb.chargePerDay && eb.from && eb.to)
+        .map(([roomId, eb]) => ({ room: roomId, chargePerDay: Number(eb.chargePerDay), from: eb.from, to: eb.to }));
+      
+      const customPricesArray = Object.entries(customPrices)
+        .filter(([, price]) => price !== undefined && price !== '')
+        .map(([roomId, price]) => ({ room: roomId, price: Number(price) }));
+      
+      const roomDiscountsArray = Object.entries(roomDiscounts)
+        .filter(([, disc]) => disc?.value)
+        .map(([roomId, disc]) => ({ room: roomId, discountType: disc.type, discountValue: Number(disc.value) }));
       
       // Filter and format advance payments - only include valid entries
       const validAdvancePayments = advancePayments
@@ -234,7 +307,20 @@ export default function EditBookingForm() {
           note: ap.note || ''
         }));
       
-      await updateBooking(id, { ...booking, guest: _id, taxableAmount, totalAmount: totalWithTax, advancePayments: validAdvancePayments, extraBeds, customPrices, roomDiscounts });
+      await updateBooking(id, {
+        ...booking,
+        rooms: selectedRooms.map((r) => r._id),
+        room: selectedRooms[0]._id,
+        numberOfRooms: selectedRooms.length,
+        guest: _id,
+        additionalGuests: allAdditionalGuestIds,
+        taxableAmount,
+        totalAmount: totalWithTax,
+        advancePayments: validAdvancePayments,
+        extraBeds: extraBedsArray,
+        customPrices: customPricesArray,
+        roomDiscounts: roomDiscountsArray
+      });
       toast.success('Booking updated');
       navigate('/bookings');
     } catch (err) {
@@ -281,82 +367,127 @@ export default function EditBookingForm() {
             </div>
           </div>
 
-          {/* Current room + extra bed */}
-          {selectedRoom && (
+          {/* Current rooms + per-room controls */}
+          {selectedRooms.length > 0 && (
             <div className="mb-4">
-              <div className="flex items-center gap-2 text-sm text-[#5a4228] mb-3">
-                <span>Current Room:</span>
-                <span className="bg-[#FDF6E3] border border-[#E8D5A0] text-[#5a4228] px-2 py-0.5 rounded-full">
-                  Room {selectedRoom.roomNumber} · {selectedRoom.category?.name} · ₹{selectedRoom.price}/night (default)
-                </span>
-              </div>
-              
-              {/* Custom Price */}
-              <div className="mb-3">
-                <label className={labelCls}>Custom Price per Night (₹) - Optional</label>
-                <input 
-                  type="number" 
-                  className={inputCls} 
-                  placeholder={`Default: ₹${selectedRoom.price}`}
-                  value={customPrice}
-                  onChange={(e) => setCustomPrice(e.target.value)} 
-                />
-                <p className="text-xs text-[#8B7D3A] mt-1">💡 Leave empty to use default price. Enter custom price for special rates.</p>
-              </div>
+              <p className="text-xs font-semibold text-[#3d2e10] mb-3">{selectedRooms.length} room(s) selected:</p>
+              <div className="space-y-3">
+                {selectedRooms.map((r) => {
+                  const eb = extraBeds[r._id] || {};
+                  const customPrice = customPrices[r._id];
+                  const discount = roomDiscounts[r._id] || {};
+                  return (
+                    <div key={r._id} className="border border-[#E8D5A0] rounded-lg bg-white p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-[#3d2e10]">
+                          Room {r.roomNumber} · {r.category?.name} · ₹{r.price}/night (default)
+                        </span>
+                        <button type="button" onClick={() => toggleRoom(r)}
+                          className="text-red-400 hover:text-red-600 text-xs font-bold">&times; Remove</button>
+                      </div>
+                      
+                      {/* Custom Price Checkbox */}
+                      <div className="mb-2">
+                        <label className="flex items-center gap-2 text-sm text-[#5a4228] cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={customPrices[r._id] !== undefined}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setCustomPrices((prev) => ({ ...prev, [r._id]: '' }));
+                              } else {
+                                setCustomPrices((prev) => { const n = { ...prev }; delete n[r._id]; return n; });
+                              }
+                            }}
+                          />
+                          Set Custom Price
+                        </label>
+                        {customPrices[r._id] !== undefined && (
+                          <div className="mt-2 pl-6">
+                            <input 
+                              type="number" 
+                              className={inputCls} 
+                              placeholder={`Default: ₹${r.price}`}
+                              value={customPrices[r._id] || ''}
+                              onChange={(e) => setCustomPrices((prev) => ({ ...prev, [r._id]: e.target.value }))} 
+                            />
+                            <p className="text-xs text-[#8B7D3A] mt-1">💡 Enter custom price for special rates</p>
+                          </div>
+                        )}
+                      </div>
 
-              {/* Room Discount */}
-              <div className="mb-3">
-                <label className={labelCls}>Room Discount - Optional</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <select 
-                    className={inputCls}
-                    value={roomDiscount.type}
-                    onChange={(e) => setRoomDiscount({ ...roomDiscount, type: e.target.value })}>
-                    <option value="fixed">Fixed Amount (₹)</option>
-                    <option value="percentage">Percentage (%)</option>
-                  </select>
-                  <input 
-                    type="number" 
-                    className={inputCls} 
-                    placeholder={roomDiscount.type === 'percentage' ? 'e.g. 10' : 'e.g. 500'}
-                    value={roomDiscount.value}
-                    onChange={(e) => setRoomDiscount({ ...roomDiscount, value: e.target.value })} 
-                  />
-                </div>
-                <p className="text-xs text-[#8B7D3A] mt-1">💰 Apply discount on this room (before taxes)</p>
-              </div>
+                      {/* Room Discount Checkbox */}
+                      <div className="mb-2">
+                        <label className="flex items-center gap-2 text-sm text-[#5a4228] cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={roomDiscounts[r._id] !== undefined}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setRoomDiscounts((prev) => ({ ...prev, [r._id]: { type: 'fixed', value: '' } }));
+                              } else {
+                                setRoomDiscounts((prev) => { const n = { ...prev }; delete n[r._id]; return n; });
+                              }
+                            }}
+                          />
+                          Apply Room Discount
+                        </label>
+                        {roomDiscounts[r._id] !== undefined && (
+                          <div className="mt-2 pl-6">
+                            <div className="grid grid-cols-2 gap-2">
+                              <select 
+                                className={inputCls}
+                                value={discount.type || 'fixed'}
+                                onChange={(e) => setRoomDiscounts((prev) => ({ ...prev, [r._id]: { ...prev[r._id], type: e.target.value } }))}>
+                                <option value="fixed">Fixed Amount (₹)</option>
+                                <option value="percentage">Percentage (%)</option>
+                              </select>
+                              <input 
+                                type="number" 
+                                className={inputCls} 
+                                placeholder={discount.type === 'percentage' ? 'e.g. 10' : 'e.g. 500'}
+                                value={discount.value || ''}
+                                onChange={(e) => setRoomDiscounts((prev) => ({ ...prev, [r._id]: { ...prev[r._id], value: e.target.value } }))} 
+                              />
+                            </div>
+                            <p className="text-xs text-[#8B7D3A] mt-1">💰 Discount applied before taxes</p>
+                          </div>
+                        )}
+                      </div>
 
-              {/* Extra bed for this room */}
-              <div className="border border-[#E8D5A0] rounded-lg bg-white p-3">
-                <label className="flex items-center gap-2 text-sm text-[#5a4228] cursor-pointer mb-2">
-                  <input type="checkbox" checked={extraBed.enabled}
-                    onChange={(e) => setExtraBed({ ...extraBed, enabled: e.target.checked })} />
-                  Add Extra Bed for Room {selectedRoom.roomNumber}
-                </label>
-                {extraBed.enabled && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pl-5">
-                    <div>
-                      <label className={labelCls}>Charge/Day (₹)</label>
-                      <input type="number" className={inputCls} placeholder="e.g. 500"
-                        value={extraBed.chargePerDay}
-                        onChange={(e) => setExtraBed({ ...extraBed, chargePerDay: e.target.value })} />
+                      {/* Extra bed checkbox */}
+                      <label className="flex items-center gap-2 text-sm text-[#5a4228] cursor-pointer mb-2">
+                        <input type="checkbox" checked={!!eb.enabled}
+                          onChange={(e) => updateExtraBed(r._id, 'enabled', e.target.checked)} />
+                        Add Extra Bed for this room
+                      </label>
+                      {eb.enabled && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2 pl-5">
+                          <div>
+                            <label className={labelCls}>Charge/Day (₹)</label>
+                            <input type="number" className={inputCls} placeholder="e.g. 500"
+                              value={eb.chargePerDay || ''}
+                              onChange={(e) => updateExtraBed(r._id, 'chargePerDay', e.target.value)} />
+                          </div>
+                          <div>
+                            <label className={labelCls}>From Date</label>
+                            <input type="date" className={inputCls}
+                              min={booking.checkIn} max={booking.checkOut}
+                              value={eb.from || ''}
+                              onChange={(e) => updateExtraBed(r._id, 'from', e.target.value)} />
+                          </div>
+                          <div>
+                            <label className={labelCls}>To Date</label>
+                            <input type="date" className={inputCls}
+                              min={eb.from || booking.checkIn} max={booking.checkOut}
+                              value={eb.to || ''}
+                              onChange={(e) => updateExtraBed(r._id, 'to', e.target.value)} />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <label className={labelCls}>From Date</label>
-                      <input type="date" className={inputCls}
-                        min={booking.checkIn} max={booking.checkOut}
-                        value={extraBed.from}
-                        onChange={(e) => setExtraBed({ ...extraBed, from: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className={labelCls}>To Date</label>
-                      <input type="date" className={inputCls}
-                        min={extraBed.from || booking.checkIn} max={booking.checkOut}
-                        value={extraBed.to}
-                        onChange={(e) => setExtraBed({ ...extraBed, to: e.target.value })} />
-                    </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -371,48 +502,46 @@ export default function EditBookingForm() {
             <div className="mb-4">
               <p className="text-sm font-semibold text-[#3d3416] mb-3">
                 {availabilityResult.total > 0
-                  ? `${availabilityResult.total} room(s) available — select a category:`
+                  ? `${availabilityResult.total} room(s) available — select from any category:`
                   : 'No rooms available for these dates.'}
               </p>
-              <div className="flex flex-wrap gap-3">
+              <div className="space-y-3">
                 {availabilityResult.grouped.map((cat) => (
-                  <button key={cat.categoryId} type="button" onClick={() => setSelectedCategory(cat)}
-                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
-                      selectedCategory?.categoryId === cat.categoryId
-                        ? 'bg-[#9C7C38] text-white border-[#9C7C38]'
-                        : 'bg-white text-[#3d2e10] border-[#C9A84C] hover:border-[#9C7C38]'
-                    }`}>
-                    {cat.categoryName}
-                    <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
-                      selectedCategory?.categoryId === cat.categoryId ? 'bg-[#7A5F28] text-white' : 'bg-[#FDF6E3] text-[#9C7C38]'
-                    }`}>{cat.rooms.length}</span>
-                    {cat.basePrice && <span className="ml-1 text-xs opacity-75">· ₹{cat.basePrice}</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {selectedCategory && (
-            <div>
-              <p className="text-sm font-semibold text-[#3d3416] mb-2">
-                Select a room from <span className="text-[#8B7D3A]">{selectedCategory.categoryName}</span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {selectedCategory.rooms.map((room) => {
-                  const isSelected = booking.room === room._id;
-                  return (
-                    <button key={room._id} type="button"
-                      onClick={() => { setSelectedRoom(room); setBooking({ ...booking, room: room._id }); }}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
-                        isSelected ? 'bg-[#9C7C38] text-white border-[#9C7C38]' : 'bg-white text-[#3d2e10] border-[#C9A84C] hover:border-[#9C7C38]'
-                      }`}>
-                      {isSelected && <CheckCircle2 size={13} />}
-                      {room.roomNumber}
-                      <span className="text-xs opacity-75">₹{room.price}/night</span>
+                  <div key={cat.categoryId} className="border border-[#E8D5A0] rounded-lg overflow-hidden">
+                    {/* Category header — click to expand/collapse */}
+                    <button type="button" onClick={() => setSelectedCategory((prev) => prev?.categoryId === cat.categoryId ? null : cat)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 bg-[#FDF6E3] hover:bg-[#f5e9c8] transition-colors">
+                      <span className="text-sm font-semibold text-[#3d2e10]">
+                        {cat.categoryName}
+                        <span className="ml-2 text-xs text-[#9C7C38]">({cat.rooms.length} available)</span>
+                        {cat.basePrice && <span className="ml-2 text-xs text-[#9C7C38]">· ₹{cat.basePrice}/night</span>}
+                      </span>
+                      <span className="text-xs text-[#9C7C38]">
+                        {selectedCategory?.categoryId === cat.categoryId ? '▲' : '▼'}
+                      </span>
                     </button>
-                  );
-                })}
+                    {/* Rooms — shown when category is expanded */}
+                    {selectedCategory?.categoryId === cat.categoryId && (
+                      <div className="px-4 py-3 flex flex-wrap gap-2">
+                        {cat.rooms.map((room) => {
+                          const isSelected = selectedRooms.find((r) => r._id === room._id);
+                          return (
+                            <button key={room._id} type="button" onClick={() => toggleRoom(room)}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                                isSelected
+                                  ? 'bg-[#9C7C38] text-white border-[#9C7C38]'
+                                  : 'bg-white text-[#3d2e10] border-[#C9A84C] hover:border-[#9C7C38]'
+                              }`}>
+                              {isSelected && <CheckCircle2 size={13} />}
+                              Room {room.roomNumber}
+                              <span className="text-xs opacity-75">₹{room.price}/night</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -649,6 +778,163 @@ export default function EditBookingForm() {
           </div>
         )}
 
+        {/* Additional Guests */}
+        <div className={sectionCls}>
+          {sectionTitle(<Users size={18} />, 'Additional Guests')}
+          
+          {/* Existing Additional Guests */}
+          {existingAdditionalGuests.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold text-[#3d2e10] mb-3">Current Additional Guests ({existingAdditionalGuests.length})</h4>
+              {existingAdditionalGuests.map((guest, idx) => (
+                <div key={guest._id} className="border border-[#E8D5A0] rounded-lg p-4 mb-3 bg-[#FFFEF9]">
+                  <div className="flex items-center justify-between mb-2">
+                    <h5 className="text-sm font-semibold text-[#3d2e10]">{guest.name}</h5>
+                    <button type="button" 
+                      onClick={() => setExistingAdditionalGuests(existingAdditionalGuests.filter((_, i) => i !== idx))}
+                      className="text-red-400 hover:text-red-600 text-xs font-bold">&times; Remove</button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-gray-500">Phone</p>
+                      <p className="font-semibold text-[#3d2e10]">{guest.phone || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Email</p>
+                      <p className="font-semibold text-[#3d2e10]">{guest.email || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">ID Type</p>
+                      <p className="font-semibold text-[#3d2e10]">{guest.idType || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">ID Number</p>
+                      <p className="font-semibold text-[#3d2e10]">{guest.idNumber || '—'}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* New Additional Guests */}
+          {additionalGuests.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold text-[#3d2e10] mb-3">New Guests to Add ({additionalGuests.length})</h4>
+              {additionalGuests.map((addGuest, idx) => (
+                <div key={idx} className="border border-[#E8D5A0] rounded-lg p-4 mb-4 bg-[#FFFEF9]">
+                  <div className="flex items-center justify-between mb-3">
+                    <h5 className="text-sm font-semibold text-[#3d2e10]">New Guest #{idx + 1}</h5>
+                    <button type="button" onClick={() => setAdditionalGuests(additionalGuests.filter((_, i) => i !== idx))}
+                      className="text-red-400 hover:text-red-600 text-xs font-bold">&times; Remove</button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3">
+                    <div>
+                      <label className={labelCls}>Salutation</label>
+                      <select className={inputCls} value={addGuest.salutation} 
+                        onChange={(e) => {
+                          const updated = [...additionalGuests];
+                          updated[idx].salutation = e.target.value;
+                          setAdditionalGuests(updated);
+                        }}>
+                        {['Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Prof.'].map((s) => <option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className={labelCls}>Name <span className="text-red-500">*</span></label>
+                      <input className={inputCls} value={addGuest.name}
+                        onChange={(e) => {
+                          const updated = [...additionalGuests];
+                          updated[idx].name = e.target.value;
+                          setAdditionalGuests(updated);
+                        }} required />
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3">
+                    <div>
+                      <label className={labelCls}>Age</label>
+                      <input type="number" className={inputCls} value={addGuest.age}
+                        onChange={(e) => {
+                          const updated = [...additionalGuests];
+                          updated[idx].age = e.target.value;
+                          setAdditionalGuests(updated);
+                        }} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Gender</label>
+                      <select className={inputCls} value={addGuest.gender}
+                        onChange={(e) => {
+                          const updated = [...additionalGuests];
+                          updated[idx].gender = e.target.value;
+                          setAdditionalGuests(updated);
+                        }}>
+                        <option value="">Select Gender</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Mobile No <span className="text-red-500">*</span></label>
+                      <input className={inputCls} value={addGuest.phone}
+                        onChange={(e) => {
+                          const updated = [...additionalGuests];
+                          updated[idx].phone = e.target.value;
+                          setAdditionalGuests(updated);
+                        }} required />
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
+                    <div>
+                      <label className={labelCls}>Email</label>
+                      <input type="email" className={inputCls} value={addGuest.email}
+                        onChange={(e) => {
+                          const updated = [...additionalGuests];
+                          updated[idx].email = e.target.value;
+                          setAdditionalGuests(updated);
+                        }} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>ID Type</label>
+                      <select className={inputCls} value={addGuest.idType}
+                        onChange={(e) => {
+                          const updated = [...additionalGuests];
+                          updated[idx].idType = e.target.value;
+                          setAdditionalGuests(updated);
+                        }}>
+                        <option value="">Select ID Proof Type</option>
+                        {['passport', 'aadhar', 'driving_license', 'voter_id', 'other'].map((t) => (
+                          <option key={t} value={t}>{t.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className={labelCls}>ID Proof Number</label>
+                    <input className={inputCls} disabled={!addGuest.idType} value={addGuest.idNumber}
+                      onChange={(e) => {
+                        const updated = [...additionalGuests];
+                        updated[idx].idNumber = e.target.value;
+                        setAdditionalGuests(updated);
+                      }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          <button type="button" 
+            onClick={() => setAdditionalGuests([...additionalGuests, { salutation: 'Mr.', name: '', age: '', gender: '', phone: '', email: '', idType: '', idNumber: '' }])}
+            className="flex items-center gap-2 px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors">
+            <User size={16} />
+            Add Another Guest
+          </button>
+        </div>
+
         {/* Stay Information */}
         <div className={sectionCls}>
           {sectionTitle(<Info size={18} />, 'Stay Information')}
@@ -664,6 +950,16 @@ export default function EditBookingForm() {
             <div>
               <label className={labelCls}>Check-out Time</label>
               <input type="time" className={inputCls} value={booking.checkOutTime} onChange={(e) => setBooking({ ...booking, checkOutTime: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className={labelCls}>Number of Adults <span className="text-red-500">*</span></label>
+              <input type="number" min="1" className={inputCls} value={booking.adults || 1} onChange={(e) => setBooking({ ...booking, adults: Number(e.target.value) })} required />
+            </div>
+            <div>
+              <label className={labelCls}>Number of Children</label>
+              <input type="number" min="0" className={inputCls} value={booking.children || 0} onChange={(e) => setBooking({ ...booking, children: Number(e.target.value) })} />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
@@ -703,28 +999,52 @@ export default function EditBookingForm() {
             <div className="border border-[#E8D5A0] rounded-lg overflow-hidden text-sm">
               <table className="w-full">
                 <tbody>
-                  <tr className="border-b border-[#f0e8c8]">
-                    <td className="px-4 py-2 text-[#5a4e28]">
-                      Room Cost ({days} days){customPrice && <span className="text-xs text-orange-600 ml-1">(Custom)</span>}:
-                    </td>
-                    <td className="px-4 py-2 text-right font-medium text-[#3d3416]">₹{roomSubtotal.toFixed(2)}</td>
-                  </tr>
-                  {roomDiscountAmount > 0 && (
-                    <tr className="border-b border-[#f0e8c8]">
-                      <td className="px-4 py-2 text-[#5a4e28] pl-8">
-                        Room Discount ({roomDiscount.type === 'percentage' ? `${roomDiscount.value}%` : `₹${roomDiscount.value}`}):
-                      </td>
-                      <td className="px-4 py-2 text-right text-green-600">-₹{roomDiscountAmount.toFixed(2)}</td>
-                    </tr>
-                  )}
-                  {extraBedCost > 0 && (
-                    <tr className="border-b border-[#f0e8c8]">
-                      <td className="px-4 py-2 text-[#5a4e28]">
-                        Extra Bed ({Math.max(1, Math.ceil((new Date(extraBed.to) - new Date(extraBed.from)) / (1000*60*60*24)))}d · ₹{extraBed.chargePerDay}/day):
-                      </td>
-                      <td className="px-4 py-2 text-right text-[#3d3416]">₹{extraBedCost.toFixed(2)}</td>
-                    </tr>
-                  )}
+                  {selectedRooms.map((r) => {
+                    const price = customPrices[r._id] !== undefined ? Number(customPrices[r._id]) : r.price;
+                    const roomSubtotal = price * days;
+                    const isCustom = customPrices[r._id] !== undefined;
+                    
+                    const discount = roomDiscounts[r._id];
+                    let discountAmount = 0;
+                    if (discount?.value) {
+                      if (discount.type === 'percentage') {
+                        discountAmount = (roomSubtotal * Number(discount.value)) / 100;
+                      } else {
+                        discountAmount = Number(discount.value);
+                      }
+                    }
+                    
+                    return (
+                      <Fragment key={r._id}>
+                        <tr className="border-b border-[#f0e8c8]">
+                          <td className="px-4 py-2 text-[#5a4e28]">
+                            Room {r.roomNumber} ({days}d){isCustom && <span className="text-xs text-orange-600 ml-1">(Custom)</span>}:
+                          </td>
+                          <td className="px-4 py-2 text-right font-medium text-[#3d3416]">₹{roomSubtotal.toFixed(2)}</td>
+                        </tr>
+                        {discountAmount > 0 && (
+                          <tr className="border-b border-[#f0e8c8]">
+                            <td className="px-4 py-2 text-[#5a4e28] pl-8">
+                              Discount ({discount.type === 'percentage' ? `${discount.value}%` : `₹${discount.value}`}):
+                            </td>
+                            <td className="px-4 py-2 text-right text-green-600">-₹{discountAmount.toFixed(2)}</td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                  {selectedRooms.map((r) => {
+                    const cost = calcExtraBedCost(r._id);
+                    const eb = extraBeds[r._id];
+                    if (!cost) return null;
+                    const ebDays = Math.max(1, Math.ceil((new Date(eb.to) - new Date(eb.from)) / (1000 * 60 * 60 * 24)));
+                    return (
+                      <tr key={`eb-${r._id}`} className="border-b border-[#f0e8c8]">
+                        <td className="px-4 py-2 text-[#5a4e28]">Extra Bed Rm {r.roomNumber} ({ebDays}d):</td>
+                        <td className="px-4 py-2 text-right text-[#3d3416]">₹{cost.toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
                   <tr className="border-b border-[#e0d5a0] bg-[#fdf8ec]">
                     <td className="px-4 py-2 font-semibold text-[#3d3416]">Subtotal:</td>
                     <td className="px-4 py-2 text-right font-semibold text-[#3d3416]">₹{taxableAmount.toFixed(2)}</td>
