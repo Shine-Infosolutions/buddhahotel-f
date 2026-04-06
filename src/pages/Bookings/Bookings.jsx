@@ -7,7 +7,6 @@ import { Eye, Pencil, Printer, FileText, Trash2, RefreshCw, Search, Mail } from 
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import InvoiceTemplate from './InvoiceTemplate';
-import { Eye, Pencil, Printer, FileText, Trash2, RefreshCw, Search } from 'lucide-react';
 import CheckoutModal from '../../components/CheckoutModal';
 
 const STATUS_OPTIONS = ['booked', 'checked_in', 'checked_out', 'cancelled'];
@@ -275,6 +274,8 @@ export default function Bookings() {
         <div ref={invoiceRef} style={{ position: 'absolute', left: '-9999px', top: 0, width: '750px', background: 'white' }}>
           <InvoiceTemplate inv={invoiceCapture.data} booking={invoiceCapture.booking} />
         </div>
+      )}
+
       {checkoutBooking && (
         <CheckoutModal 
           booking={checkoutBooking} 
