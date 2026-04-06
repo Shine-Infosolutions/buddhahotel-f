@@ -340,6 +340,18 @@ export default function BookingDetailsPage() {
                   <p className="text-sm font-semibold text-[#3d2e10]">{booking.purposeOfVisit}</p>
                 </div>
               )}
+              {booking.vehicleNumber && (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase mb-1">Vehicle Number</p>
+                  <p className="text-sm font-semibold text-[#3d2e10]">{booking.vehicleNumber}</p>
+                </div>
+              )}
+              {booking.vehicleType && (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase mb-1">Vehicle Type</p>
+                  <p className="text-sm font-semibold text-[#3d2e10] capitalize">{booking.vehicleType}</p>
+                </div>
+              )}
             </div>
             {booking.remarks && (
               <div className="mt-4 pt-4 border-t border-[#E8D5A0]">
