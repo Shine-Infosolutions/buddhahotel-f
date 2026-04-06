@@ -1,7 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getBookings, deleteBooking, updateBooking } from '../../api/bookings';
+import { getBookings, deleteBooking, updateBooking, sendBookingConfirmation } from '../../api/bookings';
+import { getInvoiceByBooking } from '../../api/billing';
 import toast from 'react-hot-toast';
+import { Eye, Pencil, Printer, FileText, Trash2, RefreshCw, Search, Mail } from 'lucide-react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import InvoiceTemplate from './InvoiceTemplate';
 import { Eye, Pencil, Printer, FileText, Trash2, RefreshCw, Search } from 'lucide-react';
 import CheckoutModal from '../../components/CheckoutModal';
 
@@ -14,6 +19,8 @@ export default function Bookings() {
   const [filtered, setFiltered] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [invoiceCapture, setInvoiceCapture] = useState({ data: null, booking: null });
+  const invoiceRef = useRef();
   const [checkoutBooking, setCheckoutBooking] = useState(null);
   const perPage = 10;
   const navigate = useNavigate();
@@ -50,6 +57,43 @@ export default function Bookings() {
   const handleStatusChange = async (id, status) => {
     try { await updateBooking(id, { status }); toast.success('Status updated'); load(); }
     catch (err) { toast.error(err.response?.data?.message || 'Error'); }
+  };
+
+  const handleSendConfirmation = async (b) => {
+    if (!b.guest?.email) return toast.error('Guest has no email address');
+    try {
+      const invRes = await getInvoiceByBooking(b._id);
+      setInvoiceCapture({ data: invRes.data, booking: b });
+      await new Promise(r => setTimeout(r, 500));
+      const element = invoiceRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2, useCORS: true,
+        width: element.scrollWidth, height: element.scrollHeight,
+        windowWidth: element.scrollWidth, windowHeight: element.scrollHeight,
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      if (pdfHeight <= pageHeight) {
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      } else {
+        let yOffset = 0;
+        while (yOffset < pdfHeight) {
+          pdf.addImage(imgData, 'PNG', 0, -yOffset, pdfWidth, pdfHeight);
+          yOffset += pageHeight;
+          if (yOffset < pdfHeight) pdf.addPage();
+        }
+      }
+      const pdfBase64 = pdf.output('datauristring').split(',')[1];
+      await sendBookingConfirmation(b._id, pdfBase64);
+      toast.success('Confirmation email sent with invoice!');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to send email');
+    } finally {
+      setInvoiceCapture({ data: null, booking: null });
+    }
   };
 
   const handlePaymentChange = async (id, paymentStatus) => {
@@ -186,6 +230,8 @@ export default function Bookings() {
                       <button onClick={() => handleDelete(b._id)} title="Delete"
                         disabled={b.status === 'checked_out'}
                         className={`transition-colors ${b.status === 'checked_out' ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}><Trash2 size={15} /></button>
+                      <button onClick={() => handleSendConfirmation(b)} title="Send Confirmation Email"
+                        className="text-purple-500 hover:text-purple-700"><Mail size={15} /></button>
                     </div>
                     {b.status === 'booked' && (
                       <button onClick={() => handleStatusChange(b._id, 'checked_in')}
@@ -224,6 +270,11 @@ export default function Bookings() {
         </div>
       )}
 
+      {/* Hidden invoice for PDF capture */}
+      {invoiceCapture.data && (
+        <div ref={invoiceRef} style={{ position: 'absolute', left: '-9999px', top: 0, width: '750px', background: 'white' }}>
+          <InvoiceTemplate inv={invoiceCapture.data} booking={invoiceCapture.booking} />
+        </div>
       {checkoutBooking && (
         <CheckoutModal 
           booking={checkoutBooking} 

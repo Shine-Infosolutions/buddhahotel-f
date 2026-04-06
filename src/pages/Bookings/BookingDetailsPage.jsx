@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getBooking } from '../../api/bookings';
-import { ArrowLeft, User, Calendar, DoorOpen, CreditCard, FileText, Bed, IndianRupee, Clock, MapPin, Target, MessageSquare, Receipt, UserPlus, Users } from 'lucide-react';
+import { getBooking, sendBookingConfirmation } from '../../api/bookings';
+import { ArrowLeft, User, Calendar, DoorOpen, CreditCard, FileText, Bed, IndianRupee, Clock, MapPin, Target, MessageSquare, Receipt, UserPlus, Users, Mail } from 'lucide-react';
+import { getInvoiceByBooking } from '../../api/billing';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import toast from 'react-hot-toast';
 import AddGuestModal from '../../components/AddGuestModal';
+import InvoiceTemplate from './InvoiceTemplate';
 
 export default function BookingDetailsPage() {
   const { id } = useParams();
@@ -11,6 +15,56 @@ export default function BookingDetailsPage() {
   const [booking, setBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showAddGuestModal, setShowAddGuestModal] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [invoiceData, setInvoiceData] = useState(null);
+  const invoiceRef = useRef();
+
+  const handleSendConfirmation = async () => {
+    if (!booking.guest?.email) return toast.error('Guest has no email address');
+    setSending(true);
+    try {
+      const invRes = await getInvoiceByBooking(id);
+      setInvoiceData(invRes.data);
+
+      // Wait for the hidden invoice to render
+      await new Promise(r => setTimeout(r, 500));
+
+      const element = invoiceRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        width: element.scrollWidth,
+        height: element.scrollHeight,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      // If content is taller than one page, add multiple pages
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      if (pdfHeight <= pageHeight) {
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      } else {
+        let yOffset = 0;
+        while (yOffset < pdfHeight) {
+          pdf.addImage(imgData, 'PNG', 0, -yOffset, pdfWidth, pdfHeight);
+          yOffset += pageHeight;
+          if (yOffset < pdfHeight) pdf.addPage();
+        }
+      }
+      const pdfBase64 = pdf.output('datauristring').split(',')[1];
+
+      await sendBookingConfirmation(id, pdfBase64);
+      toast.success('Confirmation email sent with invoice!');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to send email');
+    } finally {
+      setSending(false);
+      setInvoiceData(null);
+    }
+  };
 
   const loadBooking = () => {
     getBooking(id)
@@ -56,6 +110,10 @@ export default function BookingDetailsPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <button onClick={handleSendConfirmation} disabled={sending} className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium transition-colors flex items-center gap-2 disabled:opacity-50">
+            <Mail size={16} />
+            {sending ? 'Sending...' : 'Send Confirmation'}
+          </button>
           <button onClick={() => setShowAddGuestModal(true)} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors flex items-center gap-2">
             <UserPlus size={16} />
             Add Guest
@@ -505,6 +563,13 @@ export default function BookingDetailsPage() {
           onClose={() => setShowAddGuestModal(false)} 
           onSuccess={loadBooking} 
         />
+      )}
+
+      {/* Hidden invoice for PDF capture */}
+      {invoiceData && (
+        <div ref={invoiceRef} style={{ position: 'absolute', left: '-9999px', top: 0, width: '750px', background: 'white' }}>
+          <InvoiceTemplate inv={invoiceData} booking={booking} />
+        </div>
       )}
     </div>
   );
