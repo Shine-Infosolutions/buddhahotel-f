@@ -22,6 +22,7 @@ export default function EditBookingForm() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedRooms, setSelectedRooms] = useState([]);
   const [showCompany, setShowCompany] = useState(false);
+  const [showVehicle, setShowVehicle] = useState(false);
   const [guestPhoto, setGuestPhoto] = useState(null);
   const [idProofPhotos, setIdProofPhotos] = useState([]);
   const [existingGuestPhoto, setExistingGuestPhoto] = useState('');
@@ -46,6 +47,7 @@ export default function EditBookingForm() {
       const b = r.data;
       setGuest(b.guest);
       setShowCompany(!!b.guest?.companyDetails);
+      setShowVehicle(!!(b.vehicleNumber || b.vehicleType));
       setExistingGuestPhoto(b.guest?.guestPhoto || '');
       setExistingIdProofPhotos(b.guest?.idProofPhotos || []);
       setAdvancePayments(b.advancePayments || []);
@@ -93,6 +95,7 @@ export default function EditBookingForm() {
         checkInTime: b.checkInTime || '12:00', checkOutTime: b.checkOutTime || '12:00',
         numberOfRooms: rooms.length, arrivalFrom: b.arrivalFrom || '',
         purposeOfVisit: b.purposeOfVisit || '',
+        vehicleNumber: b.vehicleNumber || '', vehicleType: b.vehicleType || '',
         remarks: b.remarks || '', status: b.status, cgstRate: b.cgstRate ?? 2.5,
         sgstRate: b.sgstRate ?? 2.5, discount: b.discount || 0,
         paymentMode: b.paymentMode || '', paymentStatus: b.paymentStatus || 'pending',
@@ -971,6 +974,31 @@ export default function EditBookingForm() {
               <label className={labelCls}>Purpose of Visit</label>
               <input className={inputCls} value={booking.purposeOfVisit} onChange={(e) => setBooking({ ...booking, purposeOfVisit: e.target.value })} />
             </div>
+          </div>
+          <div className="mb-4">
+            <label className="flex items-center gap-2 text-sm text-[#5a4e28] cursor-pointer">
+              <input type="checkbox" checked={showVehicle} onChange={(e) => setShowVehicle(e.target.checked)} />
+              Vehicle Details
+            </label>
+            {showVehicle && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                <div>
+                  <label className={labelCls}>Vehicle Number</label>
+                  <input className={inputCls} placeholder="e.g., MH 01 AB 1234" value={booking.vehicleNumber} onChange={(e) => setBooking({ ...booking, vehicleNumber: e.target.value.toUpperCase() })} />
+                </div>
+                <div>
+                  <label className={labelCls}>Vehicle Type</label>
+                  <select className={inputCls} value={booking.vehicleType} onChange={(e) => setBooking({ ...booking, vehicleType: e.target.value })}>
+                    <option value="">Select Vehicle Type</option>
+                    <option value="car">Car</option>
+                    <option value="bike">Bike</option>
+                    <option value="suv">SUV</option>
+                    <option value="bus">Bus</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <label className={labelCls}>Remarks</label>

@@ -19,6 +19,7 @@ const emptyAdditionalGuest = {
 const emptyBooking = {
   checkIn: '', checkOut: '', checkInTime: '12:00', checkOutTime: '12:00',
   numberOfRooms: 1, adults: 1, children: 0, arrivalFrom: '', purposeOfVisit: '', extraBedChargePerDay: 0,
+  vehicleNumber: '', vehicleType: '',
   remarks: '', status: 'booked', cgstRate: 2.5, sgstRate: 2.5, discount: 0,
   paymentMode: '', paymentStatus: 'pending', billingInstruction: '',
 };
@@ -41,6 +42,7 @@ export default function AddBookingForm() {
   const [guest, setGuest] = useState(emptyGuest);
   const [booking, setBooking] = useState(emptyBooking);
   const [showCompany, setShowCompany] = useState(false);
+  const [showVehicle, setShowVehicle] = useState(false);
   const [guestPhoto, setGuestPhoto] = useState(null);
   const [idProofPhotos, setIdProofPhotos] = useState([]);
   const [showCamera, setShowCamera] = useState(false);
@@ -277,6 +279,7 @@ export default function AddBookingForm() {
     setCustomPrices({});
     setRoomDiscounts({});
     setShowCompany(false);
+    setShowVehicle(false);
     setGuestPhoto(null);
     setIdProofPhotos([]);
     setGrcSearch('');
@@ -1005,6 +1008,31 @@ export default function AddBookingForm() {
               <label className={labelCls}>Purpose of Visit</label>
               <input className={inputCls} value={booking.purposeOfVisit} onChange={(e) => setBooking({ ...booking, purposeOfVisit: e.target.value })} />
             </div>
+          </div>
+          <div className="mb-4">
+            <label className="flex items-center gap-2 text-sm text-[#5a4e28] cursor-pointer">
+              <input type="checkbox" checked={showVehicle} onChange={(e) => setShowVehicle(e.target.checked)} />
+              Vehicle Details
+            </label>
+            {showVehicle && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                <div>
+                  <label className={labelCls}>Vehicle Number</label>
+                  <input className={inputCls} placeholder="e.g., MH 01 AB 1234" value={booking.vehicleNumber} onChange={(e) => setBooking({ ...booking, vehicleNumber: e.target.value.toUpperCase() })} />
+                </div>
+                <div>
+                  <label className={labelCls}>Vehicle Type</label>
+                  <select className={inputCls} value={booking.vehicleType} onChange={(e) => setBooking({ ...booking, vehicleType: e.target.value })}>
+                    <option value="">Select Vehicle Type</option>
+                    <option value="car">Car</option>
+                    <option value="bike">Bike</option>
+                    <option value="suv">SUV</option>
+                    <option value="bus">Bus</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <label className={labelCls}>Remarks</label>
