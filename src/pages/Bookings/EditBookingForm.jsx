@@ -213,12 +213,10 @@ export default function EditBookingForm() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { _id, __v, createdAt, updatedAt, ...guestData } = guest;
+      const { _id, __v, createdAt, updatedAt, idProofPhotos: _existingPhotos, guestPhoto: _existingPhoto, ...guestData } = guest;
       if (guestPhoto) guestData.guestPhoto = guestPhoto;
-      if (idProofPhotos.length > 0 || existingIdProofPhotos.length !== (guest.idProofPhotos || []).length) {
-        guestData.idProofPhotos = idProofPhotos;
-        guestData.existingIdProofPhotos = existingIdProofPhotos;
-      }
+      guestData.idProofPhotos = idProofPhotos;
+      guestData.existingIdProofPhotos = existingIdProofPhotos;
       await updateGuest(_id, guestData);
       const extraBeds = extraBed.enabled && extraBed.chargePerDay && extraBed.from && extraBed.to
         ? [{ room: booking.room, chargePerDay: Number(extraBed.chargePerDay), from: extraBed.from, to: extraBed.to }]
