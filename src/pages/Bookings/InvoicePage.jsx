@@ -275,7 +275,7 @@ export default function InvoicePage() {
                       ))}
                       <tr className="bg-gray-200">
                         <td className="p-1 border border-black font-bold text-right">Total:</td>
-                        <td className="p-1 border border-black text-right font-bold">₹{totalAdv().toFixed(2)}</td>
+                        <td className="p-1 border border-black text-right font-bold">₹{inv.advancePayments.reduce((sum, ap) => sum + ap.amount, 0).toFixed(2)}</td>
                         <td colSpan={3} className="p-1 border border-black"></td>
                       </tr>
                     </tbody>

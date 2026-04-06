@@ -13,7 +13,7 @@ export default function CheckoutModal({ booking, onClose, onSuccess }) {
 
   const rooms = booking.rooms?.length > 0 ? booking.rooms : (booking.room ? [booking.room] : []);
   const days = Math.max(1, Math.ceil((new Date(booking.checkOut) - new Date(booking.checkIn)) / (1000 * 60 * 60 * 24)));
-  const totalAdvance = booking.advancePayments?.reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
+  const totalAdvance = booking.advancePayments?.filter(ap => !ap.isFinalPayment).reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
   const balanceDue = Math.max(0, booking.totalAmount - totalAdvance);
 
   useEffect(() => {
@@ -28,25 +28,15 @@ export default function CheckoutModal({ booking, onClose, onSuccess }) {
 
     setLoading(true);
     try {
-      const updatedAdvancePayments = [...(booking.advancePayments || [])];
-      
-      if (finalPayment > 0) {
-        updatedAdvancePayments.push({
-          amount: finalPayment,
-          method: paymentMode,
-          date: new Date(),
-          note: paymentNote || 'Final payment at checkout',
-        });
-      }
-
-      const newTotalAdvance = totalAdvance + finalPayment;
-      const newPaymentStatus = newTotalAdvance >= booking.totalAmount ? 'paid' : 'partial';
+      // Don't add final payment to advancePayments array
+      // Just keep existing advance payments and update payment status
+      const newTotalPaid = totalAdvance + finalPayment;
+      const newPaymentStatus = newTotalPaid >= booking.totalAmount ? 'paid' : 'partial';
 
       await updateBooking(booking._id, {
         status: 'checked_out',
         paymentStatus: newPaymentStatus,
         paymentMode,
-        advancePayments: updatedAdvancePayments,
       });
 
       toast.success('Checkout completed successfully');
@@ -175,14 +165,14 @@ export default function CheckoutModal({ booking, onClose, onSuccess }) {
           </div>
 
           {/* Advance Payments */}
-          {booking.advancePayments?.length > 0 && (
+          {booking.advancePayments?.filter(ap => !ap.isFinalPayment).length > 0 && (
             <div className="border-2 border-[#E8D5A0] rounded-lg p-4 bg-[#FFFEF9]">
               <div className="flex items-center gap-2 mb-3">
                 <Receipt size={18} className="text-[#9C7C38]" />
                 <h3 className="font-bold text-[#3d2e10]">Advance Payments</h3>
               </div>
               <div className="space-y-2">
-                {booking.advancePayments.map((payment, idx) => (
+                {booking.advancePayments.filter(ap => !ap.isFinalPayment).map((payment, idx) => (
                   <div key={idx} className="flex justify-between text-sm border-b border-[#E8D5A0] pb-2">
                     <div>
                       <p className="font-semibold text-[#3d2e10]">Payment #{idx + 1}</p>
@@ -193,7 +183,7 @@ export default function CheckoutModal({ booking, onClose, onSuccess }) {
                 ))}
                 <div className="flex justify-between pt-2 font-bold text-[#3d2e10]">
                   <span>Total Advance Paid</span>
-                  <span className="text-[#9C7C38]">₹{totalAdvance.toFixed(2)}</span>
+                  <span className="text-[#9C7C38]">₹{booking.advancePayments.filter(ap => !ap.isFinalPayment).reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}</span>
                 </div>
               </div>
             </div>
