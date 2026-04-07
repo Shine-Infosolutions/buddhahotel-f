@@ -398,6 +398,18 @@ export default function BookingDetailsPage() {
                   <p className="text-sm font-semibold text-[#3d2e10]">{booking.purposeOfVisit}</p>
                 </div>
               )}
+              {booking.vehicleNumber && (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase mb-1">Vehicle Number</p>
+                  <p className="text-sm font-semibold text-[#3d2e10]">{booking.vehicleNumber}</p>
+                </div>
+              )}
+              {booking.vehicleType && (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase mb-1">Vehicle Type</p>
+                  <p className="text-sm font-semibold text-[#3d2e10] capitalize">{booking.vehicleType}</p>
+                </div>
+              )}
             </div>
             {booking.remarks && (
               <div className="mt-4 pt-4 border-t border-[#E8D5A0]">
@@ -465,14 +477,14 @@ export default function BookingDetailsPage() {
           </div>
 
           {/* Advance Payments */}
-          {booking.advancePayments?.length > 0 && (
+          {booking.advancePayments?.filter(ap => !ap.isFinalPayment).length > 0 && (
             <div className="bg-white border-2 border-[#E8D5A0] rounded-lg p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Receipt size={20} className="text-[#9C7C38]" />
                 <h2 className="text-lg font-bold text-[#3d2e10]">Advance Payments</h2>
               </div>
               <div className="space-y-3">
-                {booking.advancePayments.map((payment, idx) => (
+                {booking.advancePayments.filter(ap => !ap.isFinalPayment).map((payment, idx) => (
                   <div key={idx} className="border border-[#E8D5A0] rounded-lg p-3 bg-[#FFFEF9]">
                     <div className="flex justify-between items-start mb-2">
                       <span className="text-xs font-semibold text-[#9C7C38]">Payment #{idx + 1}</span>
@@ -500,13 +512,13 @@ export default function BookingDetailsPage() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-bold text-[#3d2e10]">Total Advance</span>
                     <span className="text-lg font-bold text-[#9C7C38]">
-                      ₹{booking.advancePayments.reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}
+                      ₹{booking.advancePayments.filter(ap => !ap.isFinalPayment).reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center mt-2">
                     <span className="text-sm font-bold text-[#3d2e10]">Balance Due</span>
                     <span className="text-lg font-bold text-red-600">
-                      ₹{Math.max(0, booking.totalAmount - booking.advancePayments.reduce((sum, p) => sum + (p.amount || 0), 0)).toFixed(2)}
+                      ₹{Math.max(0, booking.totalAmount - booking.advancePayments.filter(ap => !ap.isFinalPayment).reduce((sum, p) => sum + (p.amount || 0), 0)).toFixed(2)}
                     </span>
                   </div>
                 </div>

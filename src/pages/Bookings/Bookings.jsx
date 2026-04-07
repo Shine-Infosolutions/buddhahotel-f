@@ -7,6 +7,8 @@ import { Eye, Pencil, Printer, FileText, Trash2, RefreshCw, Search, Mail, Loader
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import InvoiceTemplate from './InvoiceTemplate';
+import { Eye, Pencil, Printer, FileText, Trash2, RefreshCw, Search } from 'lucide-react';
+import CheckoutModal from '../../components/CheckoutModal';
 
 const STATUS_OPTIONS = ['booked', 'checked_in', 'checked_out', 'cancelled'];
 const PAYMENT_OPTIONS = ['pending', 'partial', 'paid'];
@@ -20,6 +22,7 @@ export default function Bookings() {
   const [invoiceCapture, setInvoiceCapture] = useState({ data: null, booking: null });
   const [mailStatus, setMailStatus] = useState({});
   const invoiceRef = useRef();
+  const [checkoutBooking, setCheckoutBooking] = useState(null);
   const perPage = 10;
   const navigate = useNavigate();
 
@@ -246,7 +249,7 @@ export default function Bookings() {
                       </button>
                     )}
                     {b.status === 'checked_in' && (
-                      <button onClick={() => handleStatusChange(b._id, 'checked_out')}
+                      <button onClick={() => setCheckoutBooking(b)}
                         className="text-xs px-3 py-0.5 rounded font-medium text-white w-full text-center bg-blue-600 hover:bg-blue-700 transition-colors">
                         Check Out
                       </button>
@@ -281,6 +284,12 @@ export default function Bookings() {
         <div ref={invoiceRef} style={{ position: 'absolute', left: '-9999px', top: 0, width: '750px', background: 'white' }}>
           <InvoiceTemplate inv={invoiceCapture.data} booking={invoiceCapture.booking} />
         </div>
+      {checkoutBooking && (
+        <CheckoutModal 
+          booking={checkoutBooking} 
+          onClose={() => setCheckoutBooking(null)} 
+          onSuccess={load} 
+        />
       )}
     </div>
   );
