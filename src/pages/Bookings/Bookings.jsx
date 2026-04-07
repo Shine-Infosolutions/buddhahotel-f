@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getBookings, deleteBooking, updateBooking, sendBookingConfirmation } from '../../api/bookings';
 import { getInvoiceByBooking } from '../../api/billing';
 import toast from 'react-hot-toast';
-import { Eye, Pencil, Printer, FileText, Trash2, RefreshCw, Search, Mail } from 'lucide-react';
+import { Eye, Pencil, Printer, FileText, Trash2, RefreshCw, Search, Mail, Loader2, CheckCircle } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import InvoiceTemplate from './InvoiceTemplate';
@@ -18,6 +18,7 @@ export default function Bookings() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [invoiceCapture, setInvoiceCapture] = useState({ data: null, booking: null });
+  const [mailStatus, setMailStatus] = useState({});
   const invoiceRef = useRef();
   const perPage = 10;
   const navigate = useNavigate();
@@ -58,6 +59,7 @@ export default function Bookings() {
 
   const handleSendConfirmation = async (b) => {
     if (!b.guest?.email) return toast.error('Guest has no email address');
+    setMailStatus(s => ({ ...s, [b._id]: 'loading' }));
     try {
       const invRes = await getInvoiceByBooking(b._id);
       setInvoiceCapture({ data: invRes.data, booking: b });
@@ -86,8 +88,11 @@ export default function Bookings() {
       const pdfBase64 = pdf.output('datauristring').split(',')[1];
       await sendBookingConfirmation(b._id, pdfBase64);
       toast.success('Confirmation email sent with invoice!');
+      setMailStatus(s => ({ ...s, [b._id]: 'success' }));
+      setTimeout(() => setMailStatus(s => ({ ...s, [b._id]: 'idle' })), 2000);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to send email');
+      setMailStatus(s => ({ ...s, [b._id]: 'idle' }));
     } finally {
       setInvoiceCapture({ data: null, booking: null });
     }
@@ -227,8 +232,12 @@ export default function Bookings() {
                       <button onClick={() => handleDelete(b._id)} title="Delete"
                         disabled={b.status === 'checked_out'}
                         className={`transition-colors ${b.status === 'checked_out' ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}><Trash2 size={15} /></button>
-                      <button onClick={() => handleSendConfirmation(b)} title="Send Confirmation Email"
-                        className="text-purple-500 hover:text-purple-700"><Mail size={15} /></button>
+                      <button
+                        onClick={() => mailStatus[b._id] !== 'loading' && mailStatus[b._id] !== 'success' && handleSendConfirmation(b)}
+                        title="Send Confirmation Email"
+                        className={`transition-colors ${mailStatus[b._id] === 'loading' ? 'text-yellow-500 cursor-wait' : mailStatus[b._id] === 'success' ? 'text-green-500 cursor-default' : 'text-purple-500 hover:text-purple-700'}`}>
+                        {mailStatus[b._id] === 'loading' ? <Loader2 size={15} className="animate-spin" /> : mailStatus[b._id] === 'success' ? <CheckCircle size={15} /> : <Mail size={15} />}
+                      </button>
                     </div>
                     {b.status === 'booked' && (
                       <button onClick={() => handleStatusChange(b._id, 'checked_in')}
