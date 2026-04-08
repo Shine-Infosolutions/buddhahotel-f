@@ -1,9 +1,13 @@
 import { useState, useEffect, Fragment, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createBooking, checkAvailability, previewNumbers, searchGuestByQuery, getGuestByGRC } from '../../api/bookings';
+import { createBooking, checkAvailability, previewNumbers, searchGuestByQuery, getGuestByGRC, sendBookingConfirmation } from '../../api/bookings';
 import { createGuest } from '../../api/guests';
+import { getInvoiceByBooking } from '../../api/billing';
 import { BedDouble, User, Info, CreditCard, Search, CheckCircle2, FileText, Upload, Camera, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import InvoiceTemplate from './InvoiceTemplate';
 
 const emptyGuest = {
   salutation: 'Mr.', name: '', age: '', gender: '', phone: '', whatsappNo: '',
@@ -57,6 +61,9 @@ export default function AddBookingForm() {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [additionalGuests, setAdditionalGuests] = useState([]);
+  const [invoiceData, setInvoiceData] = useState(null);
+  const [bookingForInvoice, setBookingForInvoice] = useState(null);
+  const invoiceRef = useRef();
 
   useEffect(() => {
     previewNumbers(new Date().toISOString().slice(0, 10)).then((r) => setPreview(r.data)).catch(() => {});
@@ -201,7 +208,7 @@ export default function AddBookingForm() {
           note: ap.note || ''
         }));
       
-      await createBooking({
+      const bookingRes = await createBooking({
         ...booking,
         rooms: selectedRooms.map((r) => r._id),
         customPrices: Object.entries(customPrices).map(([roomId, price]) => ({ room: roomId, price: Number(price) })),
@@ -218,6 +225,43 @@ export default function AddBookingForm() {
           .map(([roomId, eb]) => ({ room: roomId, chargePerDay: eb.chargePerDay, from: eb.from, to: eb.to })),
       });
       toast.success('Booking created');
+
+      // Auto-send confirmation email if guest has email
+      if (guest.email) {
+        try {
+          const bookingId = bookingRes.data._id;
+          const invRes = await getInvoiceByBooking(bookingId);
+          setInvoiceData(invRes.data);
+          setBookingForInvoice(bookingRes.data);
+          await new Promise(r => setTimeout(r, 500));
+          const element = invoiceRef.current;
+          const canvas = await html2canvas(element, { scale: 2, useCORS: true, width: element.scrollWidth, height: element.scrollHeight });
+          const imgData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF('p', 'mm', 'a4');
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+          const pageHeight = pdf.internal.pageSize.getHeight();
+          if (pdfHeight <= pageHeight) {
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+          } else {
+            let yOffset = 0;
+            while (yOffset < pdfHeight) {
+              pdf.addImage(imgData, 'PNG', 0, -yOffset, pdfWidth, pdfHeight);
+              yOffset += pageHeight;
+              if (yOffset < pdfHeight) pdf.addPage();
+            }
+          }
+          const pdfBase64 = pdf.output('datauristring').split(',')[1];
+          await sendBookingConfirmation(bookingId, pdfBase64);
+          toast.success('Confirmation email sent!');
+        } catch {
+          toast.error('Booking created but failed to send confirmation email');
+        } finally {
+          setInvoiceData(null);
+          setBookingForInvoice(null);
+        }
+      }
+
       navigate('/bookings');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Error');
@@ -349,6 +393,12 @@ export default function AddBookingForm() {
 
   return (
     <div className="-mx-8 -mt-8">
+      {/* Hidden invoice for auto email PDF capture */}
+      {invoiceData && bookingForInvoice && (
+        <div ref={invoiceRef} style={{ position: 'absolute', left: '-9999px', top: 0, width: '750px', background: 'white' }}>
+          <InvoiceTemplate inv={invoiceData} booking={bookingForInvoice} />
+        </div>
+      )}
       {/* Sticky Header */}
       <div className="sticky top-0 z-10 flex items-center gap-4 px-8 py-3 bg-white border-b-4 border-[#3d2e10] shadow-sm mb-6">
         <button type="button" onClick={() => navigate('/bookings')}
