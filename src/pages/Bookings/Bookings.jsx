@@ -334,6 +334,7 @@ export default function Bookings() {
           <InvoiceTemplate inv={invoiceCapture.data} booking={invoiceCapture.booking} />
         </div>
       )}
+
       {checkoutBooking && (
         <CheckoutModal 
           booking={checkoutBooking} 
