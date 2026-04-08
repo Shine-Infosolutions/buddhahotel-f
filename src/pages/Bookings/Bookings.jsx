@@ -283,7 +283,6 @@ export default function Bookings() {
         <div ref={invoiceRef} style={{ position: 'absolute', left: '-9999px', top: 0, width: '750px', background: 'white' }}>
           <InvoiceTemplate inv={invoiceCapture.data} booking={invoiceCapture.booking} />
         </div>
-      )}
       {checkoutBooking && (
         <CheckoutModal 
           booking={checkoutBooking} 

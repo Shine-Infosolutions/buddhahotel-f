@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LayoutDashboard, BedDouble, CalendarDays, Users, Receipt, UserCog, LogOut, Leaf, ChevronDown, ChevronRight, Tag, BarChart2 } from 'lucide-react';
+import { LayoutDashboard, BedDouble, CalendarDays, Users, UserCog, LogOut, Leaf, ChevronDown, ChevronRight, Tag, BarChart2 } from 'lucide-react';
 
 export default function Sidebar() {
   const { logout, user } = useAuth();
@@ -87,14 +87,6 @@ export default function Sidebar() {
           style={({ isActive }) => isActive ? activeStyle : {}}>
           <Users size={16} />
           Guests
-        </NavLink>
-
-        {/* Billing */}
-        <NavLink to="/billing"
-          className={({ isActive }) => navCls(isActive)}
-          style={({ isActive }) => isActive ? activeStyle : {}}>
-          <Receipt size={16} />
-          Billing
         </NavLink>
 
         {/* Staff */}
