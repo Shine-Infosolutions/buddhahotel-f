@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { LayoutDashboard, BedDouble, CalendarDays, Users, UserCog, LogOut, Leaf, ChevronDown, ChevronRight, Tag, BarChart2 } from 'lucide-react';
 
-export default function Sidebar() {
+export default function Sidebar({ onClose }) {
   const { logout, user } = useAuth();
   const location = useLocation();
   const isRoomSection = location.pathname.startsWith('/rooms') || location.pathname.startsWith('/room-categories');
@@ -13,13 +13,15 @@ export default function Sidebar() {
     `flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-colors ${active ? 'font-semibold text-[#3d2e10]' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`;
   const activeStyle = { backgroundColor: '#C9A84C' };
 
+  const handleNav = () => onClose?.();
+
   return (
-    <aside className="w-56 h-screen sticky top-0 flex flex-col overflow-y-auto" style={{ backgroundColor: '#1a2235' }}>
+    <aside className="w-56 h-screen flex flex-col overflow-y-auto" style={{ backgroundColor: '#1a2235' }}>
       {/* Logo */}
       <div className="px-5 py-5 flex flex-col items-center border-b border-white/10">
         <div className="flex items-center gap-2 mb-1">
           <Leaf size={28} className="text-green-400" />
-          <span className="text-white font-bold text-lg leading-tight">Tulsi Resort</span>
+          <span className="text-white font-bold text-lg leading-tight">Buddha Avenue</span>
         </div>
         <span className="text-[#C9A84C] text-xs font-semibold tracking-widest uppercase mt-1">
           {user?.name || 'Admin'}
@@ -30,7 +32,7 @@ export default function Sidebar() {
       <nav className="flex-1 px-3 py-4 space-y-0.5">
 
         {/* Dashboard */}
-        <NavLink to="/" end
+        <NavLink to="/" end onClick={handleNav}
           className={({ isActive }) => navCls(isActive)}
           style={({ isActive }) => isActive ? activeStyle : {}}>
           <LayoutDashboard size={16} />
@@ -38,7 +40,7 @@ export default function Sidebar() {
         </NavLink>
 
         {/* Booking */}
-        <NavLink to="/bookings"
+        <NavLink to="/bookings" onClick={handleNav}
           className={({ isActive }) => navCls(isActive)}
           style={({ isActive }) => isActive ? activeStyle : {}}>
           <CalendarDays size={16} />
@@ -59,19 +61,19 @@ export default function Sidebar() {
 
           {roomOpen && (
             <div className="ml-4 mt-0.5 space-y-0.5 border-l border-white/10 pl-3">
-              <NavLink to="/rooms"
+              <NavLink to="/rooms" onClick={handleNav}
                 className={({ isActive }) => navCls(isActive)}
                 style={({ isActive }) => isActive ? activeStyle : {}}>
                 <BedDouble size={14} />
                 Room List
               </NavLink>
-              <NavLink to="/room-categories"
+              <NavLink to="/room-categories" onClick={handleNav}
                 className={({ isActive }) => navCls(isActive)}
                 style={({ isActive }) => isActive ? activeStyle : {}}>
                 <Tag size={14} />
                 Room Categories
               </NavLink>
-              <NavLink to="/room-status"
+              <NavLink to="/room-status" onClick={handleNav}
                 className={({ isActive }) => navCls(isActive)}
                 style={({ isActive }) => isActive ? activeStyle : {}}>
                 <BarChart2 size={14} />
@@ -82,7 +84,7 @@ export default function Sidebar() {
         </div>
 
         {/* Guests */}
-        <NavLink to="/guests"
+        <NavLink to="/guests" onClick={handleNav}
           className={({ isActive }) => navCls(isActive)}
           style={({ isActive }) => isActive ? activeStyle : {}}>
           <Users size={16} />
@@ -90,7 +92,7 @@ export default function Sidebar() {
         </NavLink>
 
         {/* Staff */}
-        <NavLink to="/staff"
+        <NavLink to="/staff" onClick={handleNav}
           className={({ isActive }) => navCls(isActive)}
           style={({ isActive }) => isActive ? activeStyle : {}}>
           <UserCog size={16} />

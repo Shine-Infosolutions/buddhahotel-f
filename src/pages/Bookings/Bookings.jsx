@@ -114,14 +114,14 @@ export default function Bookings() {
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-2xl font-bold text-[#3d2e10]">Bookings</h2>
+        <h2 className="text-xl md:text-2xl font-bold text-[#3d2e10]">Bookings</h2>
         <button onClick={() => navigate('/bookings/add')} className={btnCls}>
           Add Booking
         </button>
       </div>
 
       {/* Search + Buttons */}
-      <div className="flex gap-3 mb-4 items-center">
+      <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <div className="flex-1 flex items-center gap-2 bg-white border border-[#E8D5A0] rounded-md px-3 py-2 shadow-sm">
           <Search size={15} className="text-gray-400 shrink-0" />
           <input
@@ -131,17 +131,87 @@ export default function Bookings() {
             onChange={(e) => handleSearch(e.target.value)}
           />
         </div>
-        <button onClick={() => handleSearch(search)} className={btnCls}>Search GRC</button>
-        <button onClick={handleExtraBedOnly} className={btnCls}>Extra Bed Only</button>
-        <button onClick={load}
-          className="flex items-center gap-1.5 px-5 py-2 rounded text-sm font-semibold bg-[#3b82f6] hover:bg-[#2563eb] text-white transition-colors">
-          <RefreshCw size={14} />
-          Refresh
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => handleSearch(search)} className={btnCls}>Search GRC</button>
+          <button onClick={handleExtraBedOnly} className={btnCls}>Extra Bed Only</button>
+          <button onClick={load}
+            className="flex items-center gap-1.5 px-4 py-2 rounded text-sm font-semibold bg-[#3b82f6] hover:bg-[#2563eb] text-white transition-colors">
+            <RefreshCw size={14} />
+            Refresh
+          </button>
+        </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white border border-[#E8D5A0] rounded-lg overflow-hidden shadow-sm">
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {paginated.length === 0 ? (
+          <p className="text-center py-10 text-gray-400 text-sm">No bookings found</p>
+        ) : paginated.map((b) => (
+          <div key={b._id} className="bg-white border border-[#E8D5A0] rounded-xl shadow-sm p-4 space-y-3">
+            {/* Top row */}
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="font-semibold text-[#3d2e10] text-sm">{b.guest?.name || '—'}</p>
+                <p className="text-xs text-[#9C7C38] mt-0.5">GRC: {b.grcNumber || '—'} · INV: {b.invoiceNumber || '—'}</p>
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                <button onClick={() => navigate(`/bookings/${b._id}`)} className="text-purple-500"><Eye size={16} /></button>
+                <button onClick={() => navigate(`/bookings/edit/${b._id}`)} className="text-blue-500"><Pencil size={16} /></button>
+                <button onClick={() => navigate('/invoice', { state: { bookingId: b._id } })} className="text-green-500"><FileText size={16} /></button>
+                <button onClick={() => handleDelete(b._id)} disabled={b.status === 'checked_out'}
+                  className={b.status === 'checked_out' ? 'text-gray-300' : 'text-red-500'}><Trash2 size={16} /></button>
+                <button onClick={() => mailStatus[b._id] !== 'loading' && mailStatus[b._id] !== 'success' && handleSendConfirmation(b)}
+                  className={mailStatus[b._id] === 'loading' ? 'text-yellow-500' : mailStatus[b._id] === 'success' ? 'text-green-500' : 'text-purple-500'}>
+                  {mailStatus[b._id] === 'loading' ? <Loader2 size={16} className="animate-spin" /> : mailStatus[b._id] === 'success' ? <CheckCircle size={16} /> : <Mail size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Details grid */}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#3d2e10]">
+              <div><span className="text-gray-400">Room: </span>
+                {b.rooms?.length > 0 ? b.rooms.map(r => r.roomNumber).join(', ') : b.room?.roomNumber || '—'}
+              </div>
+              <div><span className="text-gray-400">Category: </span>
+                {b.rooms?.length > 0 ? [...new Set(b.rooms.map(r => r.category?.name).filter(Boolean))].join(', ') : b.room?.category?.name || '—'}
+              </div>
+              <div><span className="text-gray-400">Check In: </span>{b.checkIn?.slice(0, 10)}</div>
+              <div><span className="text-gray-400">Check Out: </span>{b.checkOut?.slice(0, 10)}</div>
+              <div><span className="text-gray-400">Extra Bed: </span>{b.extraBeds?.length > 0 ? <span className="text-green-600 font-medium">✓ Yes</span> : 'No'}</div>
+            </div>
+
+            {/* Dropdowns + action buttons */}
+            <div className="flex flex-wrap gap-2 items-center">
+              <select value={b.status} onChange={(e) => handleStatusChange(b._id, e.target.value)}
+                disabled={b.status === 'checked_out' || b.status === 'cancelled'}
+                className="text-xs px-2 py-1 rounded outline-none bg-white flex-1"
+                style={{ border: '1px solid #C9A84C', color: '#9C7C38', opacity: (b.status === 'checked_out' || b.status === 'cancelled') ? 0.6 : 1 }}>
+                {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel[s]}</option>)}
+              </select>
+              <select value={b.paymentStatus} onChange={(e) => handlePaymentChange(b._id, e.target.value)}
+                className="text-xs px-2 py-1 rounded outline-none cursor-pointer bg-white text-[#3d2e10] flex-1"
+                style={{ border: '1px solid #C9A84C' }}>
+                {PAYMENT_OPTIONS.map((p) => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+              </select>
+              {b.status === 'booked' && (
+                <button onClick={() => handleStatusChange(b._id, 'checked_in')}
+                  className="text-xs px-3 py-1 rounded font-medium text-white bg-green-600 hover:bg-green-700 transition-colors">
+                  Check In
+                </button>
+              )}
+              {b.status === 'checked_in' && (
+                <button onClick={() => setCheckoutBooking(b)}
+                  className="text-xs px-3 py-1 rounded font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors">
+                  Check Out
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white border border-[#E8D5A0] rounded-lg overflow-hidden shadow-sm">
         <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '420px' }}>
           <table className="w-full text-sm">
             <thead>
@@ -166,7 +236,7 @@ export default function Bookings() {
                   <td className="px-3 py-3 text-sm text-[#3d2e10]">
                     {b.rooms?.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {b.rooms.map((room, idx) => (
+                        {b.rooms.map((room) => (
                           <span key={room._id} className="inline-block bg-[#FDF6E3] border border-[#E8D5A0] text-[#9C7C38] px-2 py-0.5 rounded text-xs font-medium">
                             {room.roomNumber}
                           </span>
@@ -180,7 +250,7 @@ export default function Bookings() {
                     {b.rooms?.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
                         {[...new Set(b.rooms.map(r => r.category?.name).filter(Boolean))].map((cat, idx) => (
-                          <span key={idx} className="inline-block">{cat}</span>
+                          <span key={idx}>{cat}</span>
                         ))}
                       </div>
                     ) : (
@@ -188,54 +258,34 @@ export default function Bookings() {
                     )}
                   </td>
                   <td className="px-3 py-3 whitespace-nowrap text-xs text-[#3d2e10]">
-                    {b.extraBeds?.length > 0 ? (
-                      <span className="text-green-600 font-medium">✓ Yes</span>
-                    ) : (
-                      '-'
-                    )}
+                    {b.extraBeds?.length > 0 ? <span className="text-green-600 font-medium">✓ Yes</span> : '-'}
                   </td>
                   <td className="px-3 py-3 whitespace-nowrap text-xs text-[#3d2e10]">{b.checkIn?.slice(0, 10)}</td>
                   <td className="px-3 py-3 whitespace-nowrap text-xs text-[#3d2e10]">{b.checkOut?.slice(0, 10)}</td>
-
-                  {/* Status dropdown */}
                   <td className="px-3 py-3 whitespace-nowrap">
                     <select value={b.status} onChange={(e) => handleStatusChange(b._id, e.target.value)}
                       disabled={b.status === 'checked_out' || b.status === 'cancelled'}
                       className="text-xs px-2 py-1 rounded outline-none bg-white"
                       style={{ border: '1px solid #C9A84C', color: '#9C7C38', minWidth: '105px', cursor: (b.status === 'checked_out' || b.status === 'cancelled') ? 'not-allowed' : 'pointer', opacity: (b.status === 'checked_out' || b.status === 'cancelled') ? 0.6 : 1 }}>
-                      {STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s}>{statusLabel[s]}</option>
-                      ))}
+                      {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel[s]}</option>)}
                     </select>
                   </td>
-
-                  {/* Payment dropdown */}
                   <td className="px-3 py-3 whitespace-nowrap">
                     <select value={b.paymentStatus} onChange={(e) => handlePaymentChange(b._id, e.target.value)}
                       className="text-xs px-2 py-1 rounded outline-none cursor-pointer bg-white text-[#3d2e10]"
                       style={{ border: '1px solid #C9A84C', minWidth: '65px' }}>
-                      {PAYMENT_OPTIONS.map((p) => (
-                        <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-                      ))}
+                      {PAYMENT_OPTIONS.map((p) => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
                     </select>
                   </td>
-
-                  {/* Actions */}
                   <td className="px-3 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-2 mb-1">
-                      <button onClick={() => navigate(`/bookings/${b._id}`)} title="View"
-                        className="text-purple-500 hover:text-purple-700"><Eye size={15} /></button>
-                      <button onClick={() => navigate(`/bookings/edit/${b._id}`)} title="Edit"
-                        className="text-blue-500 hover:text-blue-700"><Pencil size={15} /></button>
-                      <button title="Print"
-                        className="text-gray-400 hover:text-gray-600"><Printer size={15} /></button>
-                      <button onClick={() => navigate('/invoice', { state: { bookingId: b._id } })} title="Invoice"
-                        className="text-green-500 hover:text-green-700"><FileText size={15} /></button>
-                      <button onClick={() => handleDelete(b._id)} title="Delete"
-                        disabled={b.status === 'checked_out'}
+                      <button onClick={() => navigate(`/bookings/${b._id}`)} title="View" className="text-purple-500 hover:text-purple-700"><Eye size={15} /></button>
+                      <button onClick={() => navigate(`/bookings/edit/${b._id}`)} title="Edit" className="text-blue-500 hover:text-blue-700"><Pencil size={15} /></button>
+                      <button title="Print" className="text-gray-400 hover:text-gray-600"><Printer size={15} /></button>
+                      <button onClick={() => navigate('/invoice', { state: { bookingId: b._id } })} title="Invoice" className="text-green-500 hover:text-green-700"><FileText size={15} /></button>
+                      <button onClick={() => handleDelete(b._id)} title="Delete" disabled={b.status === 'checked_out'}
                         className={`transition-colors ${b.status === 'checked_out' ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}><Trash2 size={15} /></button>
-                      <button
-                        onClick={() => mailStatus[b._id] !== 'loading' && mailStatus[b._id] !== 'success' && handleSendConfirmation(b)}
+                      <button onClick={() => mailStatus[b._id] !== 'loading' && mailStatus[b._id] !== 'success' && handleSendConfirmation(b)}
                         title="Send Confirmation Email"
                         className={`transition-colors ${mailStatus[b._id] === 'loading' ? 'text-yellow-500 cursor-wait' : mailStatus[b._id] === 'success' ? 'text-green-500 cursor-default' : 'text-purple-500 hover:text-purple-700'}`}>
                         {mailStatus[b._id] === 'loading' ? <Loader2 size={15} className="animate-spin" /> : mailStatus[b._id] === 'success' ? <CheckCircle size={15} /> : <Mail size={15} />}

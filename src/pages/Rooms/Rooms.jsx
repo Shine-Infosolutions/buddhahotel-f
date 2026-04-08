@@ -75,8 +75,8 @@ export default function Rooms() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-2xl font-bold text-[#3d2e10]">Rooms</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <h2 className="text-xl md:text-2xl font-bold text-[#3d2e10]">Rooms</h2>
         <button onClick={openAdd}
           className="bg-[#C9A84C] hover:bg-[#a8893a] text-white px-5 py-2 rounded text-sm font-semibold transition-colors">
           + Add Room
@@ -84,7 +84,7 @@ export default function Rooms() {
       </div>
 
       {/* Search + Filter */}
-      <div className="flex gap-3 mb-6 items-center">
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="flex-1 flex items-center gap-2 bg-white border border-[#E8D5A0] rounded px-3 py-2 shadow-sm">
           <Search size={15} className="text-gray-400 shrink-0" />
           <input
